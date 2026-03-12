@@ -14,15 +14,19 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
 
-type Service struct {
+type AuthService interface {
+	Login(ctx context.Context, req LoginRequest) (*LoginResponse, error)
+}
+
+type authService struct {
 	userRepo  user.UserRepository
 	authRepo  AuthRepository
 	jwtSecret string
 	validate  *validator.Validate
 }
 
-func NewService(userRepo user.UserRepository, authRepo AuthRepository, jwtSecret string) *Service {
-	return &Service{
+func NewService(userRepo user.UserRepository, authRepo AuthRepository, jwtSecret string) AuthService {
+	return &authService{
 		userRepo:  userRepo,
 		authRepo:  authRepo,
 		jwtSecret: jwtSecret,
@@ -30,7 +34,7 @@ func NewService(userRepo user.UserRepository, authRepo AuthRepository, jwtSecret
 	}
 }
 
-func (s *Service) Login(ctx context.Context, req LoginRequest) (*LoginResponse, error) {
+func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginResponse, error) {
 	if err := s.validate.Struct(req); err != nil {
 		return nil, err
 	}

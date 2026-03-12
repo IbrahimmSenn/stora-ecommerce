@@ -3,15 +3,18 @@ package auth
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
+
+	"github.com/go-playground/validator/v10"
+
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 )
 
 type Handler struct {
-	service *Service
+	service AuthService
 }
 
-func NewHandler(service *Service) *Handler {
+func NewHandler(service AuthService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -22,25 +25,31 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	response, err := h.service.Login(r.Context(), req)
+	resp, err := h.service.Login(r.Context(), req)
 	if err != nil {
+		var ve validator.ValidationErrors
 		switch {
+		case errors.As(err, &ve):
+			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
 		case errors.Is(err, ErrInvalidCredentials):
-			http.Error(w, "invalid email or password", http.StatusUnauthorized)
+			response.Error(w, http.StatusUnauthorized, "invalid email or password")
 		default:
-			log.Printf("login: %v", err)
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			response.Error(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("encode response: %v", err)
+	response.JSON(w, http.StatusOK, resp)
+}
+
+func formatValidationErrors(ve validator.ValidationErrors) string {
+	msg := "validation failed:"
+	for _, fe := range ve {
+		msg += " " + fe.Field() + " " + fe.Tag() + ";"
 	}
+	return msg
 }

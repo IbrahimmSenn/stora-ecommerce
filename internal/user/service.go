@@ -10,24 +10,28 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type Service struct {
+type UserService interface {
+	Register(ctx context.Context, req RegisterRequest) (*UserResponse, error)
+}
+
+type userService struct {
 	repo       UserRepository
 	bcryptCost int
 	validate   *validator.Validate
 }
 
-func NewService(repo UserRepository, cost int) *Service {
+func NewService(repo UserRepository, cost int) UserService {
 	if cost == 0 {
 		cost = bcrypt.DefaultCost
 	}
-	return &Service{
+	return &userService{
 		repo:       repo,
 		bcryptCost: cost,
 		validate:   validator.New(),
 	}
 }
 
-func (s *Service) Register(ctx context.Context, req RegisterRequest) (*UserResponse, error) {
+func (s *userService) Register(ctx context.Context, req RegisterRequest) (*UserResponse, error) {
 
 	if err := s.validate.Struct(req); err != nil {
 		return nil, err
