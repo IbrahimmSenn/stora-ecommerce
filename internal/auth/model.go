@@ -1,6 +1,10 @@
 package auth
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type LoginRequest struct {
 	Email    string `json:"email" validate:"required,email"`
@@ -30,4 +34,15 @@ type ResetPasswordRequest struct {
 
 type AuthMessageResponse struct {
 	Message string `json:"message"`
+}
+
+type RefreshToken struct {
+	ID        uuid.UUID `json:"id"`
+	Token     string    `json:"token"`
+	UserID    uuid.UUID `json:"user_id"`
+	Revoked   bool      `json:"revoked"`
+	Used      bool      `json:"used"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

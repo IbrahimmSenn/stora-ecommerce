@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
 
@@ -40,12 +41,19 @@ func main() {
 	fmt.Println("connected to database")
 
 	cost, _ := strconv.Atoi(os.Getenv("BCRYPT_COST"))
+	jwtSecret := os.Getenv("JWT_SECRET")
+
 	userRepo := user.NewUserRepository(db)
 	userService := user.NewService(userRepo, cost)
 	userHandler := user.NewHandler(userService)
 
+	authRepo := auth.NewAuthRepository(db)
+	authService := auth.NewService(userRepo, authRepo, jwtSecret)
+	authHandler := auth.NewHandler(authService)
+
 	r := chi.NewRouter()
 	r.Post("/api/v1/auth/register", userHandler.Register)
+	r.Post("/api/v1/auth/login", authHandler.Login)
 
 	fmt.Println("server running on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", r))
