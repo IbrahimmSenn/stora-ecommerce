@@ -8,6 +8,8 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
 )
 
 type UserService interface {
@@ -18,9 +20,10 @@ type userService struct {
 	repo       UserRepository
 	bcryptCost int
 	validate   *validator.Validate
+	captcha    *captcha.Verifier
 }
 
-func NewService(repo UserRepository, cost int) UserService {
+func NewService(repo UserRepository, cost int, captchaVerifier *captcha.Verifier) UserService {
 	if cost == 0 {
 		cost = bcrypt.DefaultCost
 	}
@@ -28,14 +31,22 @@ func NewService(repo UserRepository, cost int) UserService {
 		repo:       repo,
 		bcryptCost: cost,
 		validate:   validator.New(),
+		captcha:    captchaVerifier,
 	}
 }
 
 func (s *userService) Register(ctx context.Context, req RegisterRequest) (*UserResponse, error) {
-
 	if err := s.validate.Struct(req); err != nil {
 		return nil, err
 	}
+
+	// Verify captcha if configured.
+	if s.captcha != nil {
+		if err := s.captcha.Verify(req.CaptchaToken); err != nil {
+			return nil, fmt.Errorf("captcha verification: %w", err)
+		}
+	}
+
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), s.bcryptCost)

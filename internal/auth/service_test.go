@@ -48,6 +48,24 @@ func (m *mockUserRepo) GetUserByID(_ context.Context, id string) (*user.User, er
 	return nil, user.ErrUserNotFound
 }
 
+func (m *mockUserRepo) CreateOAuthUser(_ context.Context, u user.User) error {
+	if _, ok := m.users[u.Email]; ok {
+		return user.ErrEmailExists
+	}
+	m.users[u.Email] = &u
+	return nil
+}
+
+func (m *mockUserRepo) UpdatePassword(_ context.Context, userID string, passwordHash string) error {
+	for _, u := range m.users {
+		if u.Id.String() == userID {
+			u.PasswordHash = passwordHash
+			return nil
+		}
+	}
+	return user.ErrUserNotFound
+}
+
 // --- Mock auth repository ---
 
 type mockAuthRepo struct {
@@ -92,6 +110,38 @@ func (m *mockAuthRepo) RevokeAllUserTokens(_ context.Context, userID string) err
 	return nil
 }
 
+func (m *mockAuthRepo) StorePasswordResetToken(_ context.Context, _ PasswordResetToken) error {
+	return nil
+}
+
+func (m *mockAuthRepo) GetPasswordResetToken(_ context.Context, _ string) (*PasswordResetToken, error) {
+	return nil, ErrResetTokenNotFound
+}
+
+func (m *mockAuthRepo) MarkResetTokenUsed(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAuthRepo) Store2FA(_ context.Context, _ TwoFactorAuth) error {
+	return nil
+}
+
+func (m *mockAuthRepo) Get2FAByUserID(_ context.Context, _ string) (*TwoFactorAuth, error) {
+	return nil, Err2FANotEnabled
+}
+
+func (m *mockAuthRepo) Enable2FA(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAuthRepo) Delete2FA(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAuthRepo) StoreRecoveryCodes(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+
 // --- Helpers ---
 
 func seedUser(repo *mockUserRepo) *user.User {
@@ -101,6 +151,7 @@ func seedUser(repo *mockUserRepo) *user.User {
 		Id:           uid,
 		Email:        "test@example.com",
 		PasswordHash: string(hash),
+		Role:         "customer",
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}

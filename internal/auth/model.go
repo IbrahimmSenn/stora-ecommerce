@@ -9,6 +9,7 @@ import (
 type LoginRequest struct {
 	Email    string `json:"email" validate:"required,email"`
 	Password string `json:"password" validate:"required"`
+	TOTPCode string `json:"totp_code,omitempty"`
 }
 
 type LoginResponse struct {
@@ -45,4 +46,42 @@ type RefreshToken struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// --- Password reset ---
+
+type PasswordResetToken struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Token     string    `json:"token"`
+	Used      bool      `json:"used"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// --- 2FA ---
+
+type TwoFactorAuth struct {
+	ID            uuid.UUID `json:"id"`
+	UserID        uuid.UUID `json:"user_id"`
+	SecretKey     string    `json:"-"`
+	IsEnabled     bool      `json:"is_enabled"`
+	RecoveryCodes []string  `json:"-"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type Setup2FAResponse struct {
+	Secret        string   `json:"secret"`
+	QRCode        string   `json:"qr_code"` // base64-encoded PNG
+	RecoveryCodes []string `json:"recovery_codes"`
+}
+
+type Verify2FARequest struct {
+	Code string `json:"code" validate:"required"`
+}
+
+type LoginWith2FARequest struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
+	TOTPCode string `json:"totp_code" validate:"required"`
 }

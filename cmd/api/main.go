@@ -11,11 +11,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/brand"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/category"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/config"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/oauth"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
@@ -41,13 +48,93 @@ func main() {
 
 	log.Println("connected to database")
 
+	// --- Dependency wiring ---
+
+	captchaVerifier := captcha.NewVerifier(cfg.RecaptchaSecretKey, cfg.SkipCaptcha)
+	mail := mailer.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
+
 	userRepo := user.NewUserRepository(db)
-	userService := user.NewService(userRepo, cfg.BcryptCost)
+	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier)
 	userHandler := user.NewHandler(userService)
 
 	authRepo := auth.NewAuthRepository(db)
-	authService := auth.NewService(userRepo, authRepo, cfg.JWTSecret)
+	authService := auth.NewService(userRepo, authRepo, cfg.JWTSecret,
+		auth.WithMailer(mail),
+		auth.WithBaseURL(cfg.BaseURL),
+		auth.WithBcryptCost(cfg.BcryptCost),
+	)
 	authHandler := auth.NewHandler(authService)
+
+	brandRepo := brand.NewRepository(db)
+	brandService := brand.NewService(brandRepo)
+	brandHandler := brand.NewHandler(brandService)
+
+	categoryRepo := category.NewRepository(db)
+	categoryService := category.NewService(categoryRepo)
+	categoryHandler := category.NewHandler(categoryService)
+
+	productRepo := product.NewRepository(db)
+	productService := product.NewService(productRepo)
+	productHandler := product.NewHandler(productService)
+
+	// --- OAuth providers ---
+
+	oauthRepo := oauth.NewRepository(db)
+
+	// Helper to store refresh tokens from the OAuth flow (avoids import cycles).
+	storeRefresh := func(ctx context.Context, token string, userID uuid.UUID) error {
+		rt := auth.RefreshToken{
+			ID:        uuid.New(),
+			Token:     token,
+			UserID:    userID,
+			ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		}
+		return authRepo.StoreRefreshToken(ctx, rt)
+	}
+
+	generateJWT := func(userID, email, role, secret string) (string, string, error) {
+		pair, err := auth.GenerateTokenPair(userID, email, role, secret)
+		if err != nil {
+			return "", "", err
+		}
+		return pair.AccessToken, pair.RefreshToken, nil
+	}
+
+	oauthService := oauth.NewService(userRepo, oauthRepo, generateJWT, storeRefresh, cfg.JWTSecret)
+
+	providers := make(map[string]oauth.Provider)
+	if cfg.GoogleClientID != "" {
+		providers["google"] = oauth.NewGoogle(
+			cfg.GoogleClientID,
+			cfg.GoogleClientSecret,
+			cfg.BaseURL+"/api/v1/auth/oauth/google/callback",
+		)
+	}
+	if cfg.FBClientID != "" {
+		providers["facebook"] = oauth.NewFacebook(
+			cfg.FBClientID,
+			cfg.FBClientSecret,
+			cfg.BaseURL+"/api/v1/auth/oauth/facebook/callback",
+		)
+	}
+
+	oauthHandler := oauth.NewHandler(oauthService, providers)
+
+	// --- Token validator closure (avoids import cycles) ---
+
+	tokenValidator := mw.TokenValidator(func(tokenString string) (*mw.TokenClaims, error) {
+		claims, err := auth.ValidateToken(tokenString, cfg.JWTSecret)
+		if err != nil {
+			return nil, err
+		}
+		return &mw.TokenClaims{
+			UserID: claims.UserID,
+			Email:  claims.Email,
+			Role:   claims.Role,
+		}, nil
+	})
+
+	// --- Router ---
 
 	r := chi.NewRouter()
 
@@ -68,24 +155,49 @@ func main() {
 		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	// --- Auth (public) ---
 	r.Post("/api/v1/auth/register", userHandler.Register)
 	r.Post("/api/v1/auth/login", authHandler.Login)
 	r.Post("/api/v1/auth/refresh", authHandler.Refresh)
+	r.Post("/api/v1/auth/forgot-password", authHandler.ForgotPassword)
+	r.Post("/api/v1/auth/reset-password", authHandler.ResetPassword)
 
-	// Protected routes — require valid access token
+	// --- OAuth (public) ---
+	r.Get("/api/v1/auth/oauth/{provider}", oauthHandler.Redirect)
+	r.Get("/api/v1/auth/oauth/{provider}/callback", oauthHandler.Callback)
+
+	// --- Auth (protected) ---
 	r.Group(func(r chi.Router) {
-		r.Use(mw.Auth(func(tokenString string) (*mw.TokenClaims, error) {
-			claims, err := auth.ValidateToken(tokenString, cfg.JWTSecret)
-			if err != nil {
-				return nil, err
-			}
-			return &mw.TokenClaims{
-				UserID: claims.UserID,
-				Email:  claims.Email,
-				Role:   claims.Role,
-			}, nil
-		}))
+		r.Use(mw.Auth(tokenValidator))
 		r.Post("/api/v1/auth/logout", authHandler.Logout)
+
+		// 2FA management
+		r.Post("/api/v1/auth/2fa/setup", authHandler.Setup2FA)
+		r.Post("/api/v1/auth/2fa/enable", authHandler.Enable2FA)
+		r.Post("/api/v1/auth/2fa/disable", authHandler.Disable2FA)
+	})
+
+	// --- Public catalog ---
+	r.Get("/api/v1/products", productHandler.Search)
+	r.Get("/api/v1/products/{id}", productHandler.GetByID)
+	r.Get("/api/v1/categories", categoryHandler.ListTree)
+	r.Get("/api/v1/categories/{slug}", categoryHandler.GetBySlug)
+	r.Get("/api/v1/brands", brandHandler.List)
+	r.Get("/api/v1/brands/{id}", brandHandler.GetByID)
+
+	// --- Admin routes (auth + admin role required) ---
+	r.Group(func(r chi.Router) {
+		r.Use(mw.Auth(tokenValidator))
+		r.Use(mw.IsAdmin)
+
+		r.Post("/api/v1/admin/products", productHandler.Create)
+		r.Put("/api/v1/admin/products/{id}", productHandler.Update)
+		r.Delete("/api/v1/admin/products/{id}", productHandler.Delete)
+		r.Post("/api/v1/admin/products/{id}/images", productHandler.AddImage)
+		r.Delete("/api/v1/admin/products/{id}/images/{imageId}", productHandler.DeleteImage)
+
+		r.Post("/api/v1/admin/categories", categoryHandler.Create)
+		r.Post("/api/v1/admin/brands", brandHandler.Create)
 	})
 
 	srv := &http.Server{
