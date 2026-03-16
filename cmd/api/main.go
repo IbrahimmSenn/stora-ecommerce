@@ -15,6 +15,7 @@ import (
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/config"
+	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
@@ -69,6 +70,23 @@ func main() {
 
 	r.Post("/api/v1/auth/register", userHandler.Register)
 	r.Post("/api/v1/auth/login", authHandler.Login)
+	r.Post("/api/v1/auth/refresh", authHandler.Refresh)
+
+	// Protected routes — require valid access token
+	r.Group(func(r chi.Router) {
+		r.Use(mw.Auth(func(tokenString string) (*mw.TokenClaims, error) {
+			claims, err := auth.ValidateToken(tokenString, cfg.JWTSecret)
+			if err != nil {
+				return nil, err
+			}
+			return &mw.TokenClaims{
+				UserID: claims.UserID,
+				Email:  claims.Email,
+				Role:   claims.Role,
+			}, nil
+		}))
+		r.Post("/api/v1/auth/logout", authHandler.Logout)
+	})
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

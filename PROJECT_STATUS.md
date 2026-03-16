@@ -11,9 +11,9 @@
 - [x] User registration (email + password) — `POST /api/v1/auth/register`
 - [x] User login with JWT token generation — `POST /api/v1/auth/login`
 - [x] Refresh token stored in database on login
-- [ ] Refresh token rotation (issue new token, mark old as used, reject reused tokens)
-- [ ] Logout / token revocation endpoint
-- [ ] Auth middleware (protect routes, validate access token)
+- [x] Refresh token rotation with single-use validation and replay detection — `POST /api/v1/auth/refresh`
+- [x] Logout / token revocation (revokes all user sessions) — `POST /api/v1/auth/logout`
+- [x] Auth middleware (validates Bearer token, injects user claims into context)
 - [ ] Password reset flow (request reset via email, reset with token)
 - [ ] OAuth integration (Google and/or Facebook)
 - [ ] CAPTCHA on registration (Google reCAPTCHA)
@@ -47,7 +47,9 @@
 
 ## Phase 6: Testing
 
-- [ ] Unit tests — JWT generation, validation, expiration
+- [x] Unit tests — JWT generation, validation, expiration, malformed input, signing method attacks
+- [x] Unit tests — auth service (login, refresh rotation, replay detection, revocation, logout)
+- [x] Unit tests — auth middleware (missing header, invalid format, invalid token, valid token, case insensitivity)
 - [ ] Unit tests — user input validation
 - [ ] Unit tests — product data model validation
 - [ ] API integration tests — all endpoints

@@ -176,7 +176,7 @@ The frontend must look and feel like a real, professional Finnish tech e-commerc
 - [ ] Database schema + migrations
 - [ ] User registration + login (email/password)
 - [ ] OAuth integration
-- [ ] JWT auth system (access + refresh + revocation)
+- [x] JWT auth system (access + refresh + revocation)
 - [ ] 2FA
 - [ ] Password reset flow
 - [ ] Product catalog (model + repository + service + handler)

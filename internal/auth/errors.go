@@ -8,4 +8,6 @@ var (
 	ErrInvalidToken       = errors.New("invalid or malformed token")
 	ErrExpiredToken       = errors.New("token has expired")
 	ErrTokenRevoked       = errors.New("token has been revoked")
+	ErrTokenUsed          = errors.New("refresh token has already been used")
+	ErrTokenNotFound      = errors.New("refresh token not found")
 )
