@@ -1,0 +1,112 @@
+erDiagram
+    users {
+        UUID id PK
+        VARCHAR email UK
+        VARCHAR password_hash
+        VARCHAR role
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    categories {
+        UUID id PK
+        VARCHAR name UK
+        VARCHAR slug UK
+        UUID parent_id FK
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    brands {
+        UUID id PK
+        VARCHAR name UK
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    products {
+        UUID id PK
+        VARCHAR name
+        TEXT description
+        INT price
+        INT stock_quantity
+        UUID category_id FK
+        UUID brand_id FK
+        INT weight_g
+        INT weight_oz "generated"
+        NUMERIC dimensions_cm
+        NUMERIC dimensions_inch "generated"
+        TSVECTOR search_vector
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    product_images {
+        UUID id PK
+        UUID product_id FK
+        TEXT url
+        BOOLEAN is_primary
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    reviews {
+        UUID id PK
+        UUID user_id FK
+        UUID product_id FK
+        TEXT comment
+        SMALLINT rating
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    refresh_tokens {
+        UUID id PK
+        VARCHAR token UK
+        UUID user_id FK
+        BOOLEAN revoked
+        BOOLEAN used
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+        TIMESTAMPTZ expires_at
+    }
+
+    oauth_accounts {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR provider
+        VARCHAR provider_user_id
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    password_reset_tokens {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR token UK
+        BOOLEAN used
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ expires_at
+    }
+
+    two_factor_auth {
+        UUID id PK
+        UUID user_id FK
+        TEXT secret_key
+        BOOLEAN is_enabled
+        TEXT[] recovery_codes
+        TIMESTAMPTZ created_at
+    }
+
+    users ||--o{ refresh_tokens : "has"
+    users ||--o{ oauth_accounts : "links"
+    users ||--o{ password_reset_tokens : "requests"
+    users ||--o| two_factor_auth : "configures"
+    users ||--o{ reviews : "writes"
+
+    categories ||--o{ categories : "parent of"
+    categories ||--o{ products : "contains"
+    brands ||--o{ products : "manufactures"
+
+    products ||--o{ product_images : "has"
+    products ||--o{ reviews : "receives"
