@@ -4,4 +4,4 @@ CREATE TABLE two_factor_auth (
   secret_key TEXT NOT NULL,
   is_enabled BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-)
+);
