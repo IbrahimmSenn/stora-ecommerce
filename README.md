@@ -1,6 +1,6 @@
 # I Love Shopping
 
-A full-scale B2C e-commerce platform built with Go, PostgreSQL, and Docker.
+A full-scale B2C e-commerce platform built with Go, PostgreSQL, and Docker. Includes a browser-based test panel for reviewers to interact with every feature without needing external tools.
 
 ## Features
 
@@ -14,7 +14,9 @@ A full-scale B2C e-commerce platform built with Go, PostgreSQL, and Docker.
 - **Categories**: Hierarchical tree structure with nested browsing
 - **Search**: PostgreSQL full-text search (tsvector/GIN index) with weighted ranking
 - **Role-Based Access**: Customer and admin roles with middleware enforcement
+- **Test Frontend**: Built-in browser UI for testing all features (register, login, OAuth, 2FA, products, admin)
 - **Docker**: Fully containerized — Docker is the only host prerequisite
+- **Seed Data**: Pre-loaded admin/customer accounts, categories, brands, products, and reviews
 
 ## Tech Stack
 
@@ -28,6 +30,7 @@ A full-scale B2C e-commerce platform built with Go, PostgreSQL, and Docker.
 | Migrations | golang-migrate |
 | Validation | go-playground/validator |
 | Containers | Docker, docker-compose |
+| Frontend | Vanilla HTML/CSS/JS (single-page test panel) |
 
 ## Entity Relationship Diagram
 
@@ -186,13 +189,29 @@ erDiagram
    docker compose up --build
    ```
 
-   This starts PostgreSQL, runs all migrations, and launches the API on port **8080**.
+   This starts PostgreSQL, runs all migrations, seeds the database with sample data, and launches the API on port **8080**.
 
-4. Verify:
+4. Open the test panel in your browser:
+   ```
+   http://localhost:8080
+   ```
+
+5. Verify the API is running:
    ```bash
    curl http://localhost:8080/health
    # {"status":"ok"}
    ```
+
+### Seed Data
+
+The database is automatically seeded on startup with test data:
+
+| Email | Password | Role |
+|-------|----------|------|
+| `admin@shop.com` | `admin123` | **admin** |
+| `customer@shop.com` | `customer123` | customer |
+
+Plus 7 categories (hierarchical), 5 brands, 10 products with images, and 9 reviews with ratings.
 
 ### Environment Variables
 
@@ -215,6 +234,34 @@ erDiagram
 | `SMTP_USER` | No | — | SMTP username |
 | `SMTP_PASS` | No | — | SMTP password |
 | `SMTP_FROM` | No | (SMTP_USER) | Sender email address |
+
+## Test Frontend
+
+A built-in single-page test panel is served at `http://localhost:8080` when the application is running. It allows reviewers to test every feature through the browser without needing curl or Postman.
+
+### Tabs
+
+| Tab | What you can test |
+|-----|-------------------|
+| **Register** | Email/password registration with client-side validation; reCAPTCHA v3 auto-loads if `RECAPTCHA_SITE_KEY` is configured |
+| **Login** | Login with email/password, optional 2FA TOTP code field, logout (token revocation) |
+| **OAuth** | Google and Facebook login redirect buttons (requires OAuth env vars) |
+| **Tokens** | View access token (stored in memory only), refresh token rotation, replay detection tester |
+| **Password Reset** | Request reset email (step 1), reset password with token (step 2) |
+| **2FA** | Setup (displays QR code + recovery codes), enable with TOTP code, disable |
+| **Products** | Full-text search with faceted filters (category, brand, price range, rating), sorting, pagination, product detail view, category tree, brand list |
+| **Admin** | Create/update/delete products, add product images, create categories and brands (requires admin login) |
+
+### Testing Walkthrough
+
+1. **Products**: Go to the Products tab and click Search to browse all seeded products. Load categories and brands to populate filter dropdowns.
+2. **Auth**: Register a new account on the Register tab, or login with `admin@shop.com` / `admin123`.
+3. **Token Rotation**: Go to the Tokens tab, click Refresh to rotate tokens. Copy the old refresh token and paste it in the replay detection field to verify it gets rejected.
+4. **2FA**: Login, go to the 2FA tab, click Setup to get a QR code. Scan with an authenticator app, enter the code to enable. Then test login with 2FA on the Login tab.
+5. **Admin**: Login as admin, go to the Admin tab to create categories, brands, and products. Verify they appear in the Products tab search.
+6. **Password Reset**: Enter an email on the Password Reset tab. If SMTP is configured, check the email for the reset token. Paste it to reset the password.
+
+Access tokens are stored **in JavaScript memory only** (not localStorage or cookies) — refreshing the page clears authentication, demonstrating proper in-memory token storage.
 
 ## API Reference
 
@@ -281,6 +328,13 @@ erDiagram
 | POST | `/api/v1/admin/categories` | Create category |
 | POST | `/api/v1/admin/brands` | Create brand |
 
+### Configuration (Public)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/config/recaptcha` | Returns the reCAPTCHA site key (used by frontend) |
+| GET | `/health` | Health check |
+
 ## Usage Examples
 
 ### Register
@@ -294,7 +348,7 @@ curl -X POST http://localhost:8080/api/v1/auth/register \
 ```bash
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "user@example.com", "password": "securepass123"}'
+  -d '{"email": "admin@shop.com", "password": "admin123"}'
 ```
 
 Response:
@@ -326,11 +380,35 @@ curl -X POST http://localhost:8080/api/v1/auth/refresh \
   -d '{"refresh_token": "eyJhbGciOiJIUzI1NiIs..."}'
 ```
 
+### Create Product (Admin)
+```bash
+curl -X POST http://localhost:8080/api/v1/admin/products \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{
+    "name": "Wireless Mouse",
+    "description": "Ergonomic wireless mouse with USB-C charging",
+    "price": 2999,
+    "stock_quantity": 100,
+    "weight_g": 85,
+    "dimensions_cm": 12.5,
+    "category_id": "ca000000-0000-0000-0000-000000000001",
+    "brand_id": "b0000000-0000-0000-0000-000000000004"
+  }'
+```
+
 ## Testing
 
 Run all tests:
 ```bash
 go test ./... -v
+```
+
+Or using Docker (no local Go installation required):
+```bash
+docker compose up -d db
+# Wait for DB to be ready, then:
+make test
 ```
 
 The test suite includes:
@@ -356,9 +434,10 @@ The test suite includes:
 │   ├── product/                 # Product catalog with faceted search
 │   ├── response/                # JSON response helpers
 │   └── user/                    # User registration
-├── migrations/                  # PostgreSQL migration files (001-014)
+├── migrations/                  # PostgreSQL migration files (001-014) + seed.sql
+├── static/                      # Frontend test panel (index.html)
 ├── Dockerfile                   # Multi-stage build
-├── docker-compose.yml           # Full stack (db + migrate + api)
+├── docker-compose.yml           # Full stack (db + migrate + seed + api)
 └── Makefile                     # Dev commands
 ```
 
@@ -371,3 +450,14 @@ HTTP Request → Handler (decode/validate) → Service (business logic) → Repo
 ```
 
 Each layer communicates through Go interfaces, enabling testability with mock implementations. Import cycles are avoided using function injection and a shared `ctxkey` package.
+
+### Docker Services
+
+| Service | Image | Purpose |
+|---------|-------|---------|
+| `db` | postgres:16-alpine | PostgreSQL database with persistent volume |
+| `migrate` | migrate/migrate | Runs all 14 migration files on startup |
+| `seed` | postgres:16-alpine | Seeds the database with test accounts, products, and reviews |
+| `api` | Custom (multi-stage) | Go API server serving both the REST API and the test frontend |
+
+All services are orchestrated with health checks and dependency ordering — `docker compose up --build` is the only command needed to run the entire stack.

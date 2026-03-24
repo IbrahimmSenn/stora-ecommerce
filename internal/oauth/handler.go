@@ -3,7 +3,10 @@ package oauth
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 
@@ -14,10 +17,11 @@ import (
 type Handler struct {
 	service   Service
 	providers map[string]Provider
+	baseURL   string
 }
 
-func NewHandler(service Service, providers map[string]Provider) *Handler {
-	return &Handler{service: service, providers: providers}
+func NewHandler(service Service, providers map[string]Provider, baseURL string) *Handler {
+	return &Handler{service: service, providers: providers, baseURL: baseURL}
 }
 
 // Redirect sends the user to the OAuth provider's consent screen.
@@ -56,17 +60,25 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 
 	userInfo, err := provider.Exchange(code)
 	if err != nil {
+		log.Printf("oauth exchange error [%s]: %v", providerName, err)
 		response.Error(w, http.StatusUnauthorized, "oauth authentication failed")
 		return
 	}
 
 	loginResp, err := h.service.OAuthLogin(r.Context(), userInfo)
 	if err != nil {
+		log.Printf("oauth login error [%s]: %v", providerName, err)
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	response.JSON(w, http.StatusOK, loginResp)
+	// Redirect back to the frontend with tokens as query parameters.
+	redirectURL := fmt.Sprintf("%s/?access_token=%s&refresh_token=%s",
+		h.baseURL,
+		url.QueryEscape(loginResp.AccessToken),
+		url.QueryEscape(loginResp.RefreshToken),
+	)
+	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
 func generateState() string {

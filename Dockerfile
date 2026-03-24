@@ -1,11 +1,15 @@
 # --- Build stage ---
-FROM golang:1.24-alpine AS builder
+FROM golang:alpine AS builder
 
 RUN apk add --no-cache git
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
+
+ENV GOPRIVATE=gitea.kood.tech/*
+ENV GONOSUMCHECK=gitea.kood.tech/*
+
 RUN go mod download
 
 COPY . .
@@ -17,9 +21,12 @@ FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates
 
-COPY --from=builder /api /api
-COPY migrations /migrations
+WORKDIR /app
+
+COPY --from=builder /api /app/api
+COPY migrations /app/migrations
+COPY static /app/static
 
 EXPOSE 8080
 
-CMD ["/api"]
+CMD ["/app/api"]

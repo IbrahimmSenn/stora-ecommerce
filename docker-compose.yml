@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: secret
       POSTGRES_DB: mystore
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,9 +24,27 @@ services:
       - ./migrations:/migrations
     command:
       [
-        "-path", "/migrations",
-        "-database", "postgres://admin:secret@db:5432/mystore?sslmode=disable",
+        "-path",
+        "/migrations",
+        "-database",
+        "postgres://admin:secret@db:5432/mystore?sslmode=disable",
         "up",
+      ]
+
+  seed:
+    image: postgres:16-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./migrations/seed.sql:/seed.sql:ro
+    entrypoint:
+      [
+        "sh",
+        "-c",
+        "PGPASSWORD=secret psql -h db -U admin -d mystore -f /seed.sql",
       ]
 
   api:
@@ -34,13 +52,25 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      migrate:
+      seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://admin:secret@db:5432/mystore?sslmode=disable
       JWT_SECRET: change-me-to-a-strong-secret-in-production
       BCRYPT_COST: "10"
       PORT: "8080"
+      SKIP_CAPTCHA: "false"
+      RECAPTCHA_SITE_KEY: "6LdfDZYsAAAAAJwW3YOrCTa8f5k7gRQQ9tqFw5A_"
+      RECAPTCHA_SECRET_KEY: "6LdfDZYsAAAAALSsVkeP3BJK8wn7Kqyu0VpGZTLz"
+      BASE_URL: "http://localhost:8080"
+      GOOGLE_CLIENT_ID: "349008126005-h067grn53e2dgnfnl7rubsva528lq5hq.apps.googleusercontent.com"
+      GOOGLE_CLIENT_SECRET: "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"
+      SMTP_HOST: "sandbox.smtp.mailtrap.io"
+      SMTP_PORT: "587"
+      SMTP_USER: "67e8358f01963d"
+      SMTP_PASS: "e0562d6732e12a"
+      SMTP_FROM: "noreply@iloveshopping.com"
+
     ports:
       - "8080:8080"
 

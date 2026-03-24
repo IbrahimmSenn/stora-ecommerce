@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>I Love Shopping - Test Panel</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;color:#333}
+header{background:#1a1a2e;color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:1.4rem}
+#user-info{font-size:.85rem;color:#aaa}
+#user-info.logged-in{color:#4ecca3}
+nav{background:#16213e;display:flex;gap:4px;padding:8px 24px;flex-wrap:wrap}
+nav button{background:transparent;color:#ccc;border:1px solid #333;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:.85rem}
+nav button:hover,nav button.active{background:#0f3460;color:#fff;border-color:#0f3460}
+main{max-width:900px;margin:24px auto;padding:0 16px}
+.panel{display:none;background:#fff;border-radius:8px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.panel.active{display:block}
+h2{margin-bottom:16px;font-size:1.2rem;color:#1a1a2e}
+h3{margin:16px 0 8px;font-size:1rem}
+label{display:block;margin:8px 0 4px;font-weight:500;font-size:.9rem}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:.9rem;margin-bottom:4px}
+textarea{resize:vertical;min-height:60px}
+button.btn{padding:8px 18px;border:none;border-radius:4px;cursor:pointer;font-size:.9rem;margin:4px 4px 4px 0}
+.btn-primary{background:#0f3460;color:#fff}
+.btn-primary:hover{background:#1a4a8a}
+.btn-danger{background:#c0392b;color:#fff}
+.btn-danger:hover{background:#a93226}
+.btn-secondary{background:#7f8c8d;color:#fff}
+.btn-secondary:hover{background:#6c7a7b}
+.btn-success{background:#27ae60;color:#fff}
+.response-box{margin-top:12px;background:#f8f8f8;border:1px solid #e0e0e0;border-radius:4px;padding:12px;font-family:'Courier New',monospace;font-size:.82rem;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto}
+.response-box.error{border-color:#e74c3c;background:#fdf0ef}
+.response-box.success{border-color:#27ae60;background:#eafaf1}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.row>*{flex:1;min-width:200px}
+.product-card{border:1px solid #e0e0e0;border-radius:6px;padding:14px;margin:8px 0;background:#fafafa}
+.product-card h4{margin-bottom:6px}
+.product-card .meta{font-size:.82rem;color:#666}
+.tag{display:inline-block;background:#e8f4fd;color:#0f3460;padding:2px 8px;border-radius:10px;font-size:.78rem;margin:2px}
+.qr-img{max-width:200px;margin:8px 0;border:1px solid #ddd;border-radius:4px}
+.recovery-codes{background:#fff3cd;border:1px solid #ffc107;padding:10px;border-radius:4px;margin:8px 0;font-family:monospace}
+.info-box{background:#e8f4fd;border:1px solid #bee5eb;padding:10px;border-radius:4px;margin:8px 0;font-size:.85rem}
+.warn-box{background:#fff3cd;border:1px solid #ffc107;padding:10px;border-radius:4px;margin:8px 0;font-size:.85rem}
+.filter-row{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px}
+.filter-row>div{flex:1;min-width:120px}
+.filter-row label{font-size:.8rem}
+.filter-row input,.filter-row select{font-size:.82rem;padding:5px 8px}
+.pagination{display:flex;gap:8px;align-items:center;margin-top:12px}
+hr{border:none;border-top:1px solid #eee;margin:16px 0}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>I Love Shopping - Test Panel</h1>
+  <div id="user-info">Not logged in</div>
+</header>
+
+<nav id="nav">
+  <button data-panel="register" class="active">Register</button>
+  <button data-panel="login">Login</button>
+  <button data-panel="oauth">OAuth</button>
+  <button data-panel="tokens">Tokens</button>
+  <button data-panel="password">Password Reset</button>
+  <button data-panel="twofa">2FA</button>
+  <button data-panel="products">Products</button>
+  <button data-panel="admin">Admin</button>
+</nav>
+
+<main>
+
+<!-- ==================== REGISTER ==================== -->
+<div class="panel active" id="panel-register">
+  <h2>Register</h2>
+  <div class="info-box">Registration with email/password + reCAPTCHA v3. If <code>SKIP_CAPTCHA=true</code>, captcha token is optional.</div>
+  <label>Email</label>
+  <input type="email" id="reg-email" placeholder="user@example.com">
+  <label>Password (min 8 chars)</label>
+  <input type="password" id="reg-password" placeholder="********">
+  <label>Confirm Password</label>
+  <input type="password" id="reg-confirm" placeholder="********">
+  <div id="recaptcha-container" style="margin:8px 0"></div>
+  <button class="btn btn-primary" onclick="doRegister()">Register</button>
+  <div id="reg-result" class="response-box" style="display:none"></div>
+</div>
+
+<!-- ==================== LOGIN ==================== -->
+<div class="panel" id="panel-login">
+  <h2>Login</h2>
+  <label>Email</label>
+  <input type="email" id="login-email" placeholder="user@example.com">
+  <label>Password</label>
+  <input type="password" id="login-password" placeholder="********">
+  <label>2FA Code (optional - only if 2FA is enabled)</label>
+  <input type="text" id="login-totp" placeholder="123456 or recovery code" maxlength="9">
+  <button class="btn btn-primary" onclick="doLogin()">Login</button>
+  <button class="btn btn-danger" onclick="doLogout()">Logout</button>
+  <div id="login-result" class="response-box" style="display:none"></div>
+</div>
+
+<!-- ==================== OAUTH ==================== -->
+<div class="panel" id="panel-oauth">
+  <h2>OAuth Login</h2>
+  <div class="info-box">Click a provider to start the OAuth flow. You will be redirected to the provider and back to the callback URL. Requires <code>GOOGLE_CLIENT_ID</code> / <code>FB_CLIENT_ID</code> to be set.</div>
+  <button class="btn btn-primary" onclick="oauthRedirect('google')" style="background:#4285f4">Login with Google</button>
+  <button class="btn btn-primary" onclick="oauthRedirect('facebook')" style="background:#1877f2">Login with Facebook</button>
+  <div id="oauth-result" class="response-box" style="display:none"></div>
+</div>
+
+<!-- ==================== TOKENS ==================== -->
+<div class="panel" id="panel-tokens">
+  <h2>Token Management</h2>
+  <div class="info-box">Access tokens are stored <strong>in memory only</strong> (JavaScript variable). Refresh tokens are single-use with rotation.</div>
+
+  <h3>Current Access Token</h3>
+  <div id="current-access-token" class="response-box" style="display:block;min-height:40px">No token</div>
+
+  <h3>Current Refresh Token</h3>
+  <div id="current-refresh-token" class="response-box" style="display:block;min-height:40px">No token</div>
+
+  <h3>Refresh Token Rotation</h3>
+  <p style="font-size:.85rem;margin:4px 0">Click to exchange current refresh token for new access + refresh tokens. Old refresh token becomes invalid.</p>
+  <button class="btn btn-primary" onclick="doRefresh()">Refresh Tokens</button>
+
+  <h3>Test Old Refresh Token (Replay Detection)</h3>
+  <label>Paste an old/used refresh token:</label>
+  <input type="text" id="old-refresh-token" placeholder="paste previously used refresh token here">
+  <button class="btn btn-danger" onclick="doRefreshWithOld()">Try Old Token (should fail)</button>
+
+  <div id="token-result" class="response-box" style="display:none"></div>
+</div>
+
+<!-- ==================== PASSWORD RESET ==================== -->
+<div class="panel" id="panel-password">
+  <h2>Password Recovery & Reset</h2>
+
+  <h3>Step 1: Request Reset Email</h3>
+  <div class="info-box">Sends a reset link via email (requires SMTP config). Returns same message regardless of whether email exists (prevents enumeration).</div>
+  <label>Email</label>
+  <input type="email" id="forgot-email" placeholder="user@example.com">
+  <button class="btn btn-primary" onclick="doForgotPassword()">Send Reset Link</button>
+  <div id="forgot-result" class="response-box" style="display:none"></div>
+
+  <hr>
+
+  <h3>Step 2: Reset Password</h3>
+  <div class="info-box">Paste the token from the reset email link. All existing sessions are revoked upon reset.</div>
+  <label>Reset Token</label>
+  <input type="text" id="reset-token" placeholder="token from email link">
+  <label>New Password (min 8 chars)</label>
+  <input type="password" id="reset-new-password" placeholder="********">
+  <label>Confirm Password</label>
+  <input type="password" id="reset-confirm-password" placeholder="********">
+  <button class="btn btn-primary" onclick="doResetPassword()">Reset Password</button>
+  <div id="reset-result" class="response-box" style="display:none"></div>
+</div>
+
+<!-- ==================== 2FA ==================== -->
+<div class="panel" id="panel-twofa">
+  <h2>Two-Factor Authentication (2FA)</h2>
+  <div class="warn-box">You must be logged in to use these endpoints. 2FA is optional and user-enabled.</div>
+
+  <h3>Step 1: Setup 2FA</h3>
+  <p style="font-size:.85rem;margin:4px 0">Generates a TOTP secret, QR code, and recovery codes. Scan the QR code with an authenticator app.</p>
+  <button class="btn btn-primary" onclick="doSetup2FA()">Setup 2FA</button>
+  <div id="twofa-qr"></div>
+  <div id="twofa-secret" style="font-size:.85rem;margin:4px 0"></div>
+  <div id="twofa-recovery"></div>
+
+  <hr>
+
+  <h3>Step 2: Enable 2FA</h3>
+  <p style="font-size:.85rem;margin:4px 0">Enter the 6-digit code from your authenticator app to activate 2FA.</p>
+  <label>TOTP Code</label>
+  <input type="text" id="enable-2fa-code" placeholder="123456" maxlength="6">
+  <button class="btn btn-success" onclick="doEnable2FA()">Enable 2FA</button>
+
+  <hr>
+
+  <h3>Disable 2FA</h3>
+  <label>TOTP Code (or recovery code)</label>
+  <input type="text" id="disable-2fa-code" placeholder="123456" maxlength="9">
+  <button class="btn btn-danger" onclick="doDisable2FA()">Disable 2FA</button>
+
+  <div id="twofa-result" class="response-box" style="display:none"></div>
+</div>
+
+<!-- ==================== PRODUCTS ==================== -->
+<div class="panel" id="panel-products">
+  <h2>Product Catalog</h2>
+
+  <h3>Search Products</h3>
+  <div class="filter-row">
+    <div><label>Search</label><input type="text" id="search-q" placeholder="keyword..."></div>
+    <div><label>Category</label><select id="search-category"><option value="">All</option></select></div>
+    <div><label>Brand</label><select id="search-brand"><option value="">All</option></select></div>
+    <div><label>Sort</label>
+      <select id="search-sort">
+        <option value="">Default</option>
+        <option value="relevance">Relevance</option>
+        <option value="price_asc">Price: Low to High</option>
+        <option value="price_desc">Price: High to Low</option>
+        <option value="rating">Rating</option>
+      </select>
+    </div>
+  </div>
+  <div class="filter-row">
+    <div><label>Min Price (cents)</label><input type="number" id="search-min-price" placeholder="0"></div>
+    <div><label>Max Price (cents)</label><input type="number" id="search-max-price" placeholder="99999"></div>
+    <div><label>Min Rating (1-5)</label><input type="number" id="search-min-rating" placeholder="1" min="1" max="5"></div>
+    <div><label>Page Size</label><input type="number" id="search-page-size" value="10" min="1" max="100"></div>
+  </div>
+  <button class="btn btn-primary" onclick="doSearch(1)">Search</button>
+  <div id="search-pagination" class="pagination"></div>
+  <div id="search-results"></div>
+  <div id="search-result" class="response-box" style="display:none"></div>
+
+  <hr>
+  <h3>Product Detail</h3>
+  <label>Product ID</label>
+  <input type="text" id="detail-id" placeholder="uuid">
+  <button class="btn btn-primary" onclick="doGetProduct()">Get Product</button>
+  <div id="detail-result" class="response-box" style="display:none"></div>
+
+  <hr>
+  <h3>Browse Categories</h3>
+  <button class="btn btn-secondary" onclick="doListCategories()">Load Category Tree</button>
+  <div id="category-tree"></div>
+
+  <h3>Browse Brands</h3>
+  <button class="btn btn-secondary" onclick="doListBrands()">Load Brands</button>
+  <div id="brand-list"></div>
+</div>
+
+<!-- ==================== ADMIN ==================== -->
+<div class="panel" id="panel-admin">
+  <h2>Admin Panel</h2>
+  <div class="warn-box">Requires admin role. Login with an admin account first.</div>
+
+  <h3>Create Category</h3>
+  <div class="row">
+    <div><label>Name</label><input type="text" id="admin-cat-name" placeholder="Electronics"></div>
+    <div><label>Slug</label><input type="text" id="admin-cat-slug" placeholder="electronics"></div>
+    <div><label>Parent ID (optional)</label><input type="text" id="admin-cat-parent" placeholder="uuid"></div>
+  </div>
+  <button class="btn btn-primary" onclick="doCreateCategory()">Create Category</button>
+  <div id="admin-cat-result" class="response-box" style="display:none"></div>
+
+  <hr>
+
+  <h3>Create Brand</h3>
+  <label>Name</label>
+  <input type="text" id="admin-brand-name" placeholder="Apple">
+  <button class="btn btn-primary" onclick="doCreateBrand()">Create Brand</button>
+  <div id="admin-brand-result" class="response-box" style="display:none"></div>
+
+  <hr>
+
+  <h3>Create Product</h3>
+  <div class="row">
+    <div><label>Name *</label><input type="text" id="admin-prod-name" placeholder="iPhone 15"></div>
+    <div><label>Price (cents) *</label><input type="number" id="admin-prod-price" placeholder="99900"></div>
+  </div>
+  <label>Description</label>
+  <textarea id="admin-prod-desc" placeholder="Product description..."></textarea>
+  <div class="row">
+    <div><label>Stock Quantity</label><input type="number" id="admin-prod-stock" value="0"></div>
+    <div><label>Weight (grams)</label><input type="number" id="admin-prod-weight" value="0"></div>
+    <div><label>Dimensions (cm)</label><input type="number" id="admin-prod-dim" step="0.1" placeholder="0"></div>
+  </div>
+  <div class="row">
+    <div><label>Category ID</label><input type="text" id="admin-prod-cat" placeholder="uuid"></div>
+    <div><label>Brand ID</label><input type="text" id="admin-prod-brand" placeholder="uuid"></div>
+  </div>
+  <button class="btn btn-primary" onclick="doCreateProduct()">Create Product</button>
+  <div id="admin-prod-result" class="response-box" style="display:none"></div>
+
+  <hr>
+
+  <h3>Update Product</h3>
+  <label>Product ID *</label>
+  <input type="text" id="admin-upd-id" placeholder="uuid">
+  <label>Fields to update (leave blank to skip)</label>
+  <div class="row">
+    <div><label>Name</label><input type="text" id="admin-upd-name"></div>
+    <div><label>Price (cents)</label><input type="number" id="admin-upd-price"></div>
+    <div><label>Stock</label><input type="number" id="admin-upd-stock"></div>
+  </div>
+  <button class="btn btn-primary" onclick="doUpdateProduct()">Update Product</button>
+  <div id="admin-upd-result" class="response-box" style="display:none"></div>
+
+  <hr>
+
+  <h3>Delete Product</h3>
+  <label>Product ID</label>
+  <input type="text" id="admin-del-id" placeholder="uuid">
+  <button class="btn btn-danger" onclick="doDeleteProduct()">Delete Product</button>
+  <div id="admin-del-result" class="response-box" style="display:none"></div>
+
+  <hr>
+
+  <h3>Add Product Image</h3>
+  <div class="row">
+    <div><label>Product ID *</label><input type="text" id="admin-img-prod" placeholder="uuid"></div>
+    <div><label>Image URL *</label><input type="text" id="admin-img-url" placeholder="https://example.com/image.jpg"></div>
+  </div>
+  <label><input type="checkbox" id="admin-img-primary"> Is Primary</label>
+  <button class="btn btn-primary" onclick="doAddImage()">Add Image</button>
+  <div id="admin-img-result" class="response-box" style="display:none"></div>
+</div>
+
+</main>
+
+<script>
+// ========== STATE (access token in memory only!) ==========
+let accessToken = null;
+let refreshToken = null;
+let currentPage = 1;
+
+const API = window.location.origin;
+
+// ========== HELPERS ==========
+function show(id, text, isError) {
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  el.className = 'response-box ' + (isError ? 'error' : 'success');
+  el.textContent = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
+}
+
+function authHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (accessToken) h['Authorization'] = 'Bearer ' + accessToken;
+  return h;
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: authHeaders() };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+function updateUserInfo() {
+  const el = document.getElementById('user-info');
+  if (accessToken) {
+    try {
+      const payload = JSON.parse(atob(accessToken.split('.')[1]));
+      el.textContent = 'Logged in: ' + payload.email + ' (' + (payload.role || 'customer') + ')';
+      el.className = 'logged-in';
+    } catch {
+      el.textContent = 'Logged in (token set)';
+      el.className = 'logged-in';
+    }
+  } else {
+    el.textContent = 'Not logged in';
+    el.className = '';
+  }
+  document.getElementById('current-access-token').textContent = accessToken || 'No token';
+  document.getElementById('current-refresh-token').textContent = refreshToken || 'No token';
+}
+
+function val(id) { return document.getElementById(id).value.trim(); }
+
+// ========== NAV ==========
+document.querySelectorAll('#nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.panel).classList.add('active');
+  });
+});
+
+// ========== CLIENT-SIDE VALIDATION ==========
+function validateEmail(email) {
+  if (!email) return 'Email is required';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Invalid email format';
+  return null;
+}
+
+function validatePassword(pw) {
+  if (!pw) return 'Password is required';
+  if (pw.length < 8) return 'Password must be at least 8 characters';
+  if (pw.length > 72) return 'Password must be at most 72 characters';
+  return null;
+}
+
+// ========== REGISTER ==========
+async function doRegister() {
+  const email = val('reg-email');
+  const password = val('reg-password');
+  const confirm = val('reg-confirm');
+
+  let err = validateEmail(email) || validatePassword(password);
+  if (err) return show('reg-result', 'Client validation: ' + err, true);
+  if (password !== confirm) return show('reg-result', 'Client validation: Passwords do not match', true);
+
+  // Get reCAPTCHA token if available
+  let captchaToken = '';
+  if (window.grecaptcha && window.RECAPTCHA_SITE_KEY) {
+    try {
+      captchaToken = await grecaptcha.execute(window.RECAPTCHA_SITE_KEY, { action: 'register' });
+    } catch (e) {
+      // reCAPTCHA not configured, proceed without
+    }
+  }
+
+  const body = { email, password };
+  if (captchaToken) body.captcha_token = captchaToken;
+
+  const r = await api('POST', '/api/v1/auth/register', body);
+  show('reg-result', r.data, !r.ok);
+}
+
+// ========== LOGIN ==========
+async function doLogin() {
+  const email = val('login-email');
+  const password = val('login-password');
+  const totp = val('login-totp');
+
+  let err = validateEmail(email) || validatePassword(password);
+  if (err) return show('login-result', 'Client validation: ' + err, true);
+
+  const body = { email, password };
+  if (totp) body.totp_code = totp;
+
+  const r = await api('POST', '/api/v1/auth/login', body);
+  if (r.ok) {
+    accessToken = r.data.access_token;
+    refreshToken = r.data.refresh_token;
+    updateUserInfo();
+  }
+  show('login-result', r.data, !r.ok);
+}
+
+async function doLogout() {
+  if (!accessToken) return show('login-result', 'Not logged in', true);
+  const r = await api('POST', '/api/v1/auth/logout');
+  accessToken = null;
+  refreshToken = null;
+  updateUserInfo();
+  show('login-result', r.data, !r.ok);
+}
+
+// ========== OAUTH ==========
+function oauthRedirect(provider) {
+  window.location.href = API + '/api/v1/auth/oauth/' + provider;
+}
+
+// Handle OAuth callback (tokens in URL hash or query)
+(function checkOAuthCallback() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('access_token')) {
+    accessToken = params.get('access_token');
+    refreshToken = params.get('refresh_token');
+    updateUserInfo();
+    // Clean URL
+    window.history.replaceState({}, '', '/');
+    setTimeout(() => {
+      document.querySelector('[data-panel="oauth"]').click();
+      show('oauth-result', { message: 'OAuth login successful!', access_token: accessToken, refresh_token: refreshToken }, false);
+    }, 100);
+  }
+})();
+
+// ========== TOKENS ==========
+async function doRefresh() {
+  if (!refreshToken) return show('token-result', 'No refresh token available. Login first.', true);
+
+  const oldRT = refreshToken;
+  const r = await api('POST', '/api/v1/auth/refresh', { refresh_token: refreshToken });
+  if (r.ok) {
+    accessToken = r.data.access_token;
+    refreshToken = r.data.refresh_token;
+    updateUserInfo();
+    show('token-result', 'Tokens rotated successfully!\n\nOld refresh token (now invalid):\n' + oldRT + '\n\nNew tokens:\n' + JSON.stringify(r.data, null, 2), false);
+  } else {
+    show('token-result', r.data, true);
+  }
+}
+
+async function doRefreshWithOld() {
+  const old = val('old-refresh-token');
+  if (!old) return show('token-result', 'Paste an old refresh token to test replay detection', true);
+  const r = await api('POST', '/api/v1/auth/refresh', { refresh_token: old });
+  show('token-result', r.data, !r.ok);
+}
+
+// ========== PASSWORD RESET ==========
+async function doForgotPassword() {
+  const email = val('forgot-email');
+  let err = validateEmail(email);
+  if (err) return show('forgot-result', 'Client validation: ' + err, true);
+
+  const r = await api('POST', '/api/v1/auth/forgot-password', { email });
+  show('forgot-result', r.data, !r.ok);
+}
+
+async function doResetPassword() {
+  const token = val('reset-token');
+  const pw = val('reset-new-password');
+  const confirm = val('reset-confirm-password');
+
+  if (!token) return show('reset-result', 'Client validation: Reset token is required', true);
+  let err = validatePassword(pw);
+  if (err) return show('reset-result', 'Client validation: ' + err, true);
+  if (pw !== confirm) return show('reset-result', 'Client validation: Passwords do not match', true);
+
+  const r = await api('POST', '/api/v1/auth/reset-password', {
+    token, new_password: pw, confirm_password: confirm
+  });
+  show('reset-result', r.data, !r.ok);
+}
+
+// ========== 2FA ==========
+async function doSetup2FA() {
+  if (!accessToken) return show('twofa-result', 'Login first', true);
+  const r = await api('POST', '/api/v1/auth/2fa/setup');
+  if (r.ok) {
+    document.getElementById('twofa-qr').innerHTML =
+      '<img class="qr-img" src="data:image/png;base64,' + r.data.qr_code + '" alt="QR Code">';
+    document.getElementById('twofa-secret').innerHTML =
+      '<strong>Secret:</strong> <code>' + r.data.secret + '</code> (manual entry in authenticator)';
+    document.getElementById('twofa-recovery').innerHTML =
+      '<div class="recovery-codes"><strong>Recovery Codes (save these!):</strong><br>' +
+      r.data.recovery_codes.join('<br>') + '</div>';
+    show('twofa-result', 'Setup complete. Scan QR code, then enter a code to enable.', false);
+  } else {
+    show('twofa-result', r.data, true);
+  }
+}
+
+async function doEnable2FA() {
+  if (!accessToken) return show('twofa-result', 'Login first', true);
+  const code = val('enable-2fa-code');
+  if (!code) return show('twofa-result', 'Enter the TOTP code from your authenticator app', true);
+  const r = await api('POST', '/api/v1/auth/2fa/enable', { code });
+  show('twofa-result', r.data, !r.ok);
+}
+
+async function doDisable2FA() {
+  if (!accessToken) return show('twofa-result', 'Login first', true);
+  const code = val('disable-2fa-code');
+  if (!code) return show('twofa-result', 'Enter a TOTP code or recovery code', true);
+  const r = await api('POST', '/api/v1/auth/2fa/disable', { code });
+  show('twofa-result', r.data, !r.ok);
+}
+
+// ========== PRODUCTS ==========
+async function doSearch(page) {
+  currentPage = page || 1;
+  const params = new URLSearchParams();
+  const q = val('search-q'); if (q) params.set('q', q);
+  const cat = val('search-category'); if (cat) params.set('category_id', cat);
+  const brand = val('search-brand'); if (brand) params.set('brand_id', brand);
+  const sort = val('search-sort'); if (sort) params.set('sort', sort);
+  const minP = val('search-min-price'); if (minP) params.set('min_price', minP);
+  const maxP = val('search-max-price'); if (maxP) params.set('max_price', maxP);
+  const minR = val('search-min-rating'); if (minR) params.set('min_rating', minR);
+  const ps = val('search-page-size'); if (ps) params.set('page_size', ps);
+  params.set('page', currentPage);
+
+  const r = await api('GET', '/api/v1/products?' + params.toString());
+  if (r.ok) {
+    const d = r.data;
+    const container = document.getElementById('search-results');
+    if (!d.products || d.products.length === 0) {
+      container.innerHTML = '<p style="color:#999;margin:12px 0">No products found.</p>';
+    } else {
+      container.innerHTML = d.products.map(p => `
+        <div class="product-card" style="display:flex;gap:14px;align-items:flex-start">
+          ${p.primary_image ? '<img src="' + esc(p.primary_image) + '" alt="' + esc(p.name) + '" style="width:80px;height:80px;object-fit:cover;border-radius:4px;border:1px solid #ddd;flex-shrink:0">' : '<div style="width:80px;height:80px;background:#eee;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.7rem;color:#999;flex-shrink:0">No image</div>'}
+          <div style="flex:1">
+            <h4>${esc(p.name)}</h4>
+            <div class="meta">
+              <strong>$${(p.price / 100).toFixed(2)}</strong> | Stock: ${p.stock_quantity}
+              ${p.category_name ? ' | <span class="tag">' + esc(p.category_name) + '</span>' : ''}
+              ${p.brand_name ? ' | <span class="tag">' + esc(p.brand_name) + '</span>' : ''}
+              | Rating: ${p.avg_rating.toFixed(1)} (${p.review_count} reviews)
+            </div>
+            <div style="margin-top:6px">
+              <button class="btn btn-secondary" style="font-size:.78rem;padding:3px 10px"
+                onclick="document.getElementById('detail-id').value='${p.id}';doGetProduct()">View Detail</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+    // Pagination
+    const totalPages = Math.ceil(d.total / d.page_size);
+    const pag = document.getElementById('search-pagination');
+    let html = `<span>Page ${d.page} of ${totalPages} (${d.total} total)</span>`;
+    if (d.page > 1) html += ` <button class="btn btn-secondary" onclick="doSearch(${d.page - 1})">Prev</button>`;
+    if (d.page < totalPages) html += ` <button class="btn btn-secondary" onclick="doSearch(${d.page + 1})">Next</button>`;
+    pag.innerHTML = html;
+    show('search-result', d, false);
+  } else {
+    show('search-result', r.data, true);
+  }
+}
+
+async function doGetProduct() {
+  const id = val('detail-id');
+  if (!id) return show('detail-result', 'Enter a product ID', true);
+  const r = await api('GET', '/api/v1/products/' + id);
+  if (r.ok && r.data.images && r.data.images.length > 0) {
+    const imgHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">' +
+      r.data.images.map(img =>
+        '<div style="text-align:center"><img src="' + esc(img.url) + '" alt="product" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #ddd">' +
+        (img.is_primary ? '<div style="font-size:.7rem;color:#27ae60;font-weight:bold">Primary</div>' : '') +
+        '</div>'
+      ).join('') + '</div>';
+    document.getElementById('detail-result').style.display = 'block';
+    document.getElementById('detail-result').className = 'response-box success';
+    document.getElementById('detail-result').innerHTML = imgHTML +
+      '<strong>' + esc(r.data.name) + '</strong> | $' + (r.data.price / 100).toFixed(2) +
+      (r.data.description ? '<p style="margin:8px 0;font-size:.85rem">' + esc(r.data.description) + '</p>' : '') +
+      '<div style="font-size:.82rem;margin:4px 0">Stock: ' + r.data.stock_quantity + ' | Weight: ' + r.data.weight_g + 'g (' + (r.data.weight_oz || '—') + 'oz)' +
+      (r.data.dimensions_cm ? ' | Dimensions: ' + r.data.dimensions_cm + 'cm (' + (r.data.dimensions_inch || '—') + 'in)' : '') + '</div>' +
+      (r.data.category_name ? '<span class="tag">' + esc(r.data.category_name) + '</span> ' : '') +
+      (r.data.brand_name ? '<span class="tag">' + esc(r.data.brand_name) + '</span> ' : '') +
+      '<div style="font-size:.82rem;margin-top:6px">Rating: ' + r.data.avg_rating.toFixed(1) + ' (' + r.data.review_count + ' reviews)</div>' +
+      '<pre style="margin-top:12px;font-size:.75rem;background:#f0f0f0;padding:8px;border-radius:4px;overflow-x:auto">' + JSON.stringify(r.data, null, 2).replace(/</g, '&lt;') + '</pre>';
+  } else {
+    show('detail-result', r.data, !r.ok);
+  }
+}
+
+async function doListCategories() {
+  const r = await api('GET', '/api/v1/categories');
+  if (r.ok) {
+    document.getElementById('category-tree').innerHTML = renderCategoryTree(r.data);
+    loadCategoryOptions(r.data);
+  }
+}
+
+function renderCategoryTree(cats, depth) {
+  depth = depth || 0;
+  if (!cats || cats.length === 0) return '<p style="color:#999;margin:4px 0">No categories.</p>';
+  return '<ul style="margin-left:' + (depth * 16) + 'px;list-style:disc">' +
+    cats.map(c => '<li><strong>' + esc(c.name) + '</strong> <code style="font-size:.75rem">' + c.slug + ' | ' + c.id + '</code>' +
+      (c.children ? renderCategoryTree(c.children, depth + 1) : '') + '</li>').join('') + '</ul>';
+}
+
+function loadCategoryOptions(cats, prefix) {
+  prefix = prefix || '';
+  const sel = document.getElementById('search-category');
+  cats.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = prefix + c.name;
+    sel.appendChild(opt);
+    if (c.children) loadCategoryOptions(c.children, prefix + c.name + ' > ');
+  });
+}
+
+async function doListBrands() {
+  const r = await api('GET', '/api/v1/brands');
+  if (r.ok) {
+    const container = document.getElementById('brand-list');
+    if (!r.data || r.data.length === 0) {
+      container.innerHTML = '<p style="color:#999">No brands.</p>';
+    } else {
+      container.innerHTML = '<ul>' + r.data.map(b =>
+        '<li><strong>' + esc(b.name) + '</strong> <code style="font-size:.75rem">' + b.id + '</code></li>').join('') + '</ul>';
+      // Populate brand filter
+      const sel = document.getElementById('search-brand');
+      sel.innerHTML = '<option value="">All</option>';
+      r.data.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name;
+        sel.appendChild(opt);
+      });
+    }
+  }
+}
+
+// ========== ADMIN ==========
+async function doCreateCategory() {
+  const name = val('admin-cat-name');
+  const slug = val('admin-cat-slug');
+  if (!name || !slug) return show('admin-cat-result', 'Name and slug are required', true);
+  const body = { name, slug };
+  const parent = val('admin-cat-parent');
+  if (parent) body.parent_id = parent;
+  const r = await api('POST', '/api/v1/admin/categories', body);
+  show('admin-cat-result', r.data, !r.ok);
+}
+
+async function doCreateBrand() {
+  const name = val('admin-brand-name');
+  if (!name) return show('admin-brand-result', 'Name is required', true);
+  const r = await api('POST', '/api/v1/admin/brands', { name });
+  show('admin-brand-result', r.data, !r.ok);
+}
+
+async function doCreateProduct() {
+  const name = val('admin-prod-name');
+  const price = val('admin-prod-price');
+  if (!name) return show('admin-prod-result', 'Name is required', true);
+  if (!price && price !== '0') return show('admin-prod-result', 'Price is required', true);
+
+  const body = {
+    name,
+    price: parseInt(price),
+    stock_quantity: parseInt(val('admin-prod-stock')) || 0,
+    weight_g: parseInt(val('admin-prod-weight')) || 0,
+  };
+  const desc = val('admin-prod-desc');
+  if (desc) body.description = desc;
+  const dim = val('admin-prod-dim');
+  if (dim) body.dimensions_cm = parseFloat(dim);
+  const cat = val('admin-prod-cat');
+  if (cat) body.category_id = cat;
+  const brand = val('admin-prod-brand');
+  if (brand) body.brand_id = brand;
+
+  const r = await api('POST', '/api/v1/admin/products', body);
+  show('admin-prod-result', r.data, !r.ok);
+}
+
+async function doUpdateProduct() {
+  const id = val('admin-upd-id');
+  if (!id) return show('admin-upd-result', 'Product ID is required', true);
+  const body = {};
+  const name = val('admin-upd-name'); if (name) body.name = name;
+  const price = val('admin-upd-price'); if (price) body.price = parseInt(price);
+  const stock = val('admin-upd-stock'); if (stock) body.stock_quantity = parseInt(stock);
+  if (Object.keys(body).length === 0) return show('admin-upd-result', 'Provide at least one field to update', true);
+  const r = await api('PUT', '/api/v1/admin/products/' + id, body);
+  show('admin-upd-result', r.data, !r.ok);
+}
+
+async function doDeleteProduct() {
+  const id = val('admin-del-id');
+  if (!id) return show('admin-del-result', 'Product ID is required', true);
+  const r = await api('DELETE', '/api/v1/admin/products/' + id);
+  show('admin-del-result', r.data, !r.ok);
+}
+
+async function doAddImage() {
+  const pid = val('admin-img-prod');
+  const url = val('admin-img-url');
+  if (!pid || !url) return show('admin-img-result', 'Product ID and URL are required', true);
+  const body = { url, is_primary: document.getElementById('admin-img-primary').checked };
+  const r = await api('POST', '/api/v1/admin/products/' + pid + '/images', body);
+  show('admin-img-result', r.data, !r.ok);
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ========== reCAPTCHA LOADER ==========
+// Dynamically load reCAPTCHA if site key is configured
+(async function loadRecaptcha() {
+  try {
+    const r = await fetch(API + '/api/v1/config/recaptcha');
+    if (r.ok) {
+      const d = await r.json();
+      if (d.site_key) {
+        window.RECAPTCHA_SITE_KEY = d.site_key;
+        const s = document.createElement('script');
+        s.src = 'https://www.google.com/recaptcha/api.js?render=' + d.site_key;
+        document.head.appendChild(s);
+        document.getElementById('recaptcha-container').innerHTML =
+          '<div class="info-box">reCAPTCHA v3 loaded (site key: <code>' + d.site_key.substring(0, 10) + '...</code>)</div>';
+      }
+    }
+  } catch {}
+})();
+
+updateUserInfo();
+</script>
+
+</body>
+</html>

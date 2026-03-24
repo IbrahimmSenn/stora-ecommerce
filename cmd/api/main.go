@@ -118,7 +118,7 @@ func main() {
 		)
 	}
 
-	oauthHandler := oauth.NewHandler(oauthService, providers)
+	oauthHandler := oauth.NewHandler(oauthService, providers, cfg.BaseURL)
 
 	// --- Token validator closure (avoids import cycles) ---
 
@@ -150,6 +150,18 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+
+	// --- Static frontend ---
+	staticFS := http.FileServer(http.Dir("static"))
+	r.Handle("/static/*", http.StripPrefix("/static/", staticFS))
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "static/index.html")
+	})
+
+	// Expose reCAPTCHA site key to frontend (public, non-secret)
+	r.Get("/api/v1/config/recaptcha", func(w http.ResponseWriter, r *http.Request) {
+		response.JSON(w, http.StatusOK, map[string]string{"site_key": cfg.RecaptchaSiteKey})
+	})
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})

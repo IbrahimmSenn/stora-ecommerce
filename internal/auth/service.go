@@ -403,9 +403,11 @@ func (s *authService) Disable2FA(ctx context.Context, userID string, req Verify2
 		return Err2FANotEnabled
 	}
 
-	// Verify the code before disabling.
+	// Verify the code before disabling (TOTP or recovery code).
 	if !totp.Validate(req.Code, tfa.SecretKey) {
-		return ErrInvalid2FACode
+		if !s.useRecoveryCode(ctx, userID, tfa, req.Code) {
+			return ErrInvalid2FACode
+		}
 	}
 
 	if err := s.authRepo.Delete2FA(ctx, userID); err != nil {
