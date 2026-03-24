@@ -54,23 +54,14 @@ services:
         condition: service_healthy
       seed:
         condition: service_completed_successfully
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgres://admin:secret@db:5432/mystore?sslmode=disable
       JWT_SECRET: change-me-to-a-strong-secret-in-production
       BCRYPT_COST: "10"
       PORT: "8080"
-      SKIP_CAPTCHA: "false"
-      RECAPTCHA_SITE_KEY: "6LdfDZYsAAAAAJwW3YOrCTa8f5k7gRQQ9tqFw5A_"
-      RECAPTCHA_SECRET_KEY: "6LdfDZYsAAAAALSsVkeP3BJK8wn7Kqyu0VpGZTLz"
       BASE_URL: "http://localhost:8080"
-      GOOGLE_CLIENT_ID: "349008126005-h067grn53e2dgnfnl7rubsva528lq5hq.apps.googleusercontent.com"
-      GOOGLE_CLIENT_SECRET: "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"
-      SMTP_HOST: "sandbox.smtp.mailtrap.io"
-      SMTP_PORT: "587"
-      SMTP_USER: "67e8358f01963d"
-      SMTP_PASS: "e0562d6732e12a"
-      SMTP_FROM: "noreply@iloveshopping.com"
-
     ports:
       - "8080:8080"
 
