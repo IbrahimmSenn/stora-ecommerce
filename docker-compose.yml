@@ -2,15 +2,15 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: mystore
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-mystore}
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d mystore"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-mystore}"]
       interval: 2s
       timeout: 5s
       retries: 10
@@ -27,7 +27,7 @@ services:
         "-path",
         "/migrations",
         "-database",
-        "postgres://admin:secret@db:5432/mystore?sslmode=disable",
+        "postgres://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secret}@db:5432/${POSTGRES_DB:-mystore}?sslmode=disable",
         "up",
       ]
 
@@ -44,7 +44,7 @@ services:
       [
         "sh",
         "-c",
-        "PGPASSWORD=secret psql -h db -U admin -d mystore -f /seed.sql",
+        "PGPASSWORD=${POSTGRES_PASSWORD:-secret} psql -h db -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-mystore} -f /seed.sql",
       ]
 
   api:
@@ -57,11 +57,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://admin:secret@db:5432/mystore?sslmode=disable
-      JWT_SECRET: change-me-to-a-strong-secret-in-production
-      BCRYPT_COST: "10"
-      PORT: "8080"
-      BASE_URL: "http://localhost:8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secret}@db:5432/${POSTGRES_DB:-mystore}?sslmode=disable
     ports:
       - "8080:8080"
 

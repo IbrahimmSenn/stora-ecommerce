@@ -442,7 +442,9 @@ func generateRecoveryCodes(count int) []string {
 	codes := make([]string, count)
 	for i := 0; i < count; i++ {
 		b := make([]byte, 5)
-		rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			panic("crypto/rand is unavailable: " + err.Error())
+		}
 		code := fmt.Sprintf("%X", b)
 		// Format as XXXX-XXXX for readability.
 		if len(code) >= 8 {

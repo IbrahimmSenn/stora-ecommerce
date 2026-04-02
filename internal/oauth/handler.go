@@ -83,6 +83,8 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 
 func generateState() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand is unavailable: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
