@@ -191,6 +191,7 @@ func main() {
 
 	// --- Public catalog ---
 	r.Get("/api/v1/products", productHandler.Search)
+	r.Get("/api/v1/products/suggest", productHandler.Suggest)
 	r.Get("/api/v1/products/{id}", productHandler.GetByID)
 	r.Get("/api/v1/categories", categoryHandler.ListTree)
 	r.Get("/api/v1/categories/{slug}", categoryHandler.GetBySlug)

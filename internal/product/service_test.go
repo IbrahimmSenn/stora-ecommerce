@@ -77,6 +77,10 @@ func (s *stubRepo) Search(_ context.Context, params SearchParams) (*SearchResult
 	}, nil
 }
 
+func (s *stubRepo) Suggest(_ context.Context, _ string, _ int) ([]Suggestion, error) {
+	return []Suggestion{}, nil
+}
+
 func (s *stubRepo) GetByID(_ context.Context, _ string) (*ProductDetail, error) {
 	return nil, ErrProductNotFound
 }

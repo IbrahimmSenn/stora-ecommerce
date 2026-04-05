@@ -70,6 +70,17 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, result)
 }
 
+// Suggest handles GET /api/v1/products/suggest?q=...
+func (h *Handler) Suggest(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	suggestions, err := h.service.Suggest(r.Context(), q)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	response.JSON(w, http.StatusOK, suggestions)
+}
+
 // GetByID handles GET /api/v1/products/{id}
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

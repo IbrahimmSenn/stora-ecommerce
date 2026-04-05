@@ -104,3 +104,9 @@ type SearchResult struct {
 	Page     int               `json:"page"`
 	PageSize int               `json:"page_size"`
 }
+
+// Suggestion is a lightweight result for typeahead/autocomplete.
+type Suggestion struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}

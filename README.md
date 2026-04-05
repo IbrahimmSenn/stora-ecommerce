@@ -310,6 +310,7 @@ Access tokens are stored **in JavaScript memory only** (not localStorage or cook
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/products` | Search/filter products |
+| GET | `/api/v1/products/suggest?q=` | Dynamic search suggestions (typeahead) |
 | GET | `/api/v1/products/{id}` | Get product detail with images and reviews |
 | GET | `/api/v1/categories` | Get category tree |
 | GET | `/api/v1/categories/{slug}` | Get category by slug |

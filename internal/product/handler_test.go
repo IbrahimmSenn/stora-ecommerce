@@ -41,6 +41,17 @@ func (m *mockProductRepo) Search(_ context.Context, params SearchParams) (*Searc
 	}, nil
 }
 
+func (m *mockProductRepo) Suggest(_ context.Context, query string, limit int) ([]Suggestion, error) {
+	var results []Suggestion
+	for _, p := range m.products {
+		if len(results) >= limit {
+			break
+		}
+		results = append(results, Suggestion{ID: p.ID, Name: p.Name})
+	}
+	return results, nil
+}
+
 func (m *mockProductRepo) GetByID(_ context.Context, id string) (*ProductDetail, error) {
 	p, ok := m.products[id]
 	if !ok {

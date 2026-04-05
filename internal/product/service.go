@@ -10,6 +10,7 @@ import (
 
 type Service interface {
 	Search(ctx context.Context, params SearchParams) (*SearchResult, error)
+	Suggest(ctx context.Context, query string) ([]Suggestion, error)
 	GetByID(ctx context.Context, id string) (*ProductDetail, error)
 	Create(ctx context.Context, req CreateProductRequest) (*Product, error)
 	Update(ctx context.Context, id string, req UpdateProductRequest) (*Product, error)
@@ -35,6 +36,13 @@ func (s *service) Search(ctx context.Context, params SearchParams) (*SearchResul
 		params.PageSize = 20
 	}
 	return s.repo.Search(ctx, params)
+}
+
+func (s *service) Suggest(ctx context.Context, query string) ([]Suggestion, error) {
+	if query == "" {
+		return []Suggestion{}, nil
+	}
+	return s.repo.Suggest(ctx, query, 8)
 }
 
 func (s *service) GetByID(ctx context.Context, id string) (*ProductDetail, error) {

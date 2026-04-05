@@ -12,6 +12,7 @@ import (
 
 type Repository interface {
 	Search(ctx context.Context, params SearchParams) (*SearchResult, error)
+	Suggest(ctx context.Context, query string, limit int) ([]Suggestion, error)
 	GetByID(ctx context.Context, id string) (*ProductDetail, error)
 	Create(ctx context.Context, p Product) (*Product, error)
 	Update(ctx context.Context, id string, p UpdateProductRequest) (*Product, error)
@@ -176,6 +177,29 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 		Page:     params.Page,
 		PageSize: params.PageSize,
 	}, nil
+}
+
+func (r *postgresRepository) Suggest(ctx context.Context, query string, limit int) ([]Suggestion, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id, name FROM products WHERE name ILIKE '%' || $1 || '%' ORDER BY name LIMIT $2`,
+		query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("suggest products: %w", err)
+	}
+	defer rows.Close()
+
+	var suggestions []Suggestion
+	for rows.Next() {
+		var s Suggestion
+		if err := rows.Scan(&s.ID, &s.Name); err != nil {
+			return nil, fmt.Errorf("scan suggestion: %w", err)
+		}
+		suggestions = append(suggestions, s)
+	}
+	if suggestions == nil {
+		suggestions = []Suggestion{}
+	}
+	return suggestions, nil
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*ProductDetail, error) {
