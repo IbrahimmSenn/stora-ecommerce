@@ -1,3 +1,4 @@
+// repository.go — postgres queries for categories (supports hierarchical parent_id).
 package category
 
 import (

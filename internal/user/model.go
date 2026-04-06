@@ -1,3 +1,4 @@
+// model.go — user domain model and request/response types.
 package user
 
 import (

@@ -1,3 +1,4 @@
+// handler.go — HTTP handler for user registration.
 package user
 
 import (

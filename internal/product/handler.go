@@ -1,3 +1,4 @@
+// handler.go — HTTP handlers for product search, detail, CRUD, and image management.
 package product
 
 import (

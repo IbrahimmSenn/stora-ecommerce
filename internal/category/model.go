@@ -1,3 +1,4 @@
+// model.go — category domain model, tree representation, and request types.
 package category
 
 import (

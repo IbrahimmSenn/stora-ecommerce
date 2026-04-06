@@ -1,3 +1,4 @@
+// provider.go — common interface that all OAuth providers (Google, Facebook) implement.
 package oauth
 
 // UserInfo is the standardized user data returned by any OAuth provider.

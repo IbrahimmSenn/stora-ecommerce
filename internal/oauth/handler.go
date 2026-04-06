@@ -1,3 +1,4 @@
+// handler.go — HTTP handlers for OAuth redirect and callback endpoints.
 package oauth
 
 import (

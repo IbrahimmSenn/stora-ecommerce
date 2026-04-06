@@ -1,3 +1,4 @@
+// repository.go — postgres queries for user CRUD (create, lookup, password update).
 package user
 
 import (

@@ -1,3 +1,4 @@
+// service.go — OAuth login logic: find existing user, link account, or create new user.
 package oauth
 
 import (

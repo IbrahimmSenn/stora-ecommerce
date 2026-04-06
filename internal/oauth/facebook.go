@@ -1,3 +1,4 @@
+// facebook.go — Facebook OAuth provider: consent redirect and token exchange.
 package oauth
 
 import (

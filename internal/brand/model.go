@@ -1,3 +1,4 @@
+// model.go — brand domain model and request types.
 package brand
 
 import (

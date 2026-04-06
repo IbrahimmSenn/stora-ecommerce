@@ -1,3 +1,4 @@
+// errors.go — sentinel errors for the category package.
 package category
 
 import "errors"

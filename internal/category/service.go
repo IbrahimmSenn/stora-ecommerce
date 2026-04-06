@@ -1,3 +1,4 @@
+// service.go — category business logic, including the flat-to-tree conversion for nested browsing.
 package category
 
 import (

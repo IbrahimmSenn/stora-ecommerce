@@ -1,3 +1,4 @@
+// errors.go — sentinel errors for the product package.
 package product
 
 import "errors"

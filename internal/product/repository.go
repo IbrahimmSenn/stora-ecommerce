@@ -1,3 +1,4 @@
+// repository.go — postgres queries for products, including faceted search with full-text search (tsvector).
 package product
 
 import (

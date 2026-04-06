@@ -1,3 +1,4 @@
+// captcha.go ��� reCAPTCHA v3 server-side verification. Skippable for local dev.
 package captcha
 
 import (

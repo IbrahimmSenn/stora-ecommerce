@@ -1,3 +1,4 @@
+// repository.go — postgres queries for brands.
 package brand
 
 import (

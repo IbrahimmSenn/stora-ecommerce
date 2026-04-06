@@ -1,3 +1,4 @@
+// service.go — brand business logic and input validation.
 package brand
 
 import (

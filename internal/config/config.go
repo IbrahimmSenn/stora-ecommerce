@@ -1,3 +1,4 @@
+// config.go — loads all application settings from environment variables (via .env file).
 package config
 
 import (

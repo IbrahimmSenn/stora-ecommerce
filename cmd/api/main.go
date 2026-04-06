@@ -1,3 +1,6 @@
+// main.go — application entrypoint. Loads config, connects to the database,
+// wires up all dependencies, registers routes, and starts the HTTP server
+// with graceful shutdown on SIGINT/SIGTERM.
 package main
 
 import (
@@ -49,6 +52,7 @@ func main() {
 	log.Println("connected to database")
 
 	// --- Dependency wiring ---
+	// Each domain follows the same pattern: Repository (DB) -> Service (logic) -> Handler (HTTP).
 
 	captchaVerifier := captcha.NewVerifier(cfg.RecaptchaSecretKey, cfg.SkipCaptcha)
 	mail := mailer.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
@@ -78,10 +82,11 @@ func main() {
 	productHandler := product.NewHandler(productService)
 
 	// --- OAuth providers ---
+	// We inject token generation and storage as closures to avoid a direct
+	// dependency between the oauth and auth packages (would cause an import cycle).
 
 	oauthRepo := oauth.NewRepository(db)
 
-	// Helper to store refresh tokens from the OAuth flow (avoids import cycles).
 	storeRefresh := func(ctx context.Context, token string, userID uuid.UUID) error {
 		rt := auth.RefreshToken{
 			ID:        uuid.New(),
@@ -120,7 +125,9 @@ func main() {
 
 	oauthHandler := oauth.NewHandler(oauthService, providers, cfg.BaseURL)
 
-	// --- Token validator closure (avoids import cycles) ---
+	// --- Token validator for middleware ---
+	// Same pattern: wrap the auth.ValidateToken call in a closure so the
+	// middleware package doesn't need to import auth directly.
 
 	tokenValidator := mw.TokenValidator(func(tokenString string) (*mw.TokenClaims, error) {
 		claims, err := auth.ValidateToken(tokenString, cfg.JWTSecret)
@@ -151,7 +158,7 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// --- Static frontend ---
+	// --- Static frontend (test panel served at /) ---
 	staticFS := http.FileServer(http.Dir("static"))
 	r.Handle("/static/*", http.StripPrefix("/static/", staticFS))
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +174,7 @@ func main() {
 		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	// --- Auth (public) ---
+	// --- Auth routes (no token required) ---
 	r.Post("/api/v1/auth/register", userHandler.Register)
 	r.Post("/api/v1/auth/login", authHandler.Login)
 	r.Post("/api/v1/auth/refresh", authHandler.Refresh)
@@ -178,7 +185,7 @@ func main() {
 	r.Get("/api/v1/auth/oauth/{provider}", oauthHandler.Redirect)
 	r.Get("/api/v1/auth/oauth/{provider}/callback", oauthHandler.Callback)
 
-	// --- Auth (protected) ---
+	// --- Auth routes (token required) ---
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Auth(tokenValidator))
 		r.Post("/api/v1/auth/logout", authHandler.Logout)
@@ -189,7 +196,7 @@ func main() {
 		r.Post("/api/v1/auth/2fa/disable", authHandler.Disable2FA)
 	})
 
-	// --- Public catalog ---
+	// --- Public catalog (no auth) ---
 	r.Get("/api/v1/products", productHandler.Search)
 	r.Get("/api/v1/products/suggest", productHandler.Suggest)
 	r.Get("/api/v1/products/{id}", productHandler.GetByID)
@@ -198,7 +205,7 @@ func main() {
 	r.Get("/api/v1/brands", brandHandler.List)
 	r.Get("/api/v1/brands/{id}", brandHandler.GetByID)
 
-	// --- Admin routes (auth + admin role required) ---
+	// --- Admin routes (valid token + role=admin required) ---
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Auth(tokenValidator))
 		r.Use(mw.IsAdmin)
@@ -212,6 +219,8 @@ func main() {
 		r.Post("/api/v1/admin/categories", categoryHandler.Create)
 		r.Post("/api/v1/admin/brands", brandHandler.Create)
 	})
+
+	// --- Start server with graceful shutdown ---
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

@@ -1,3 +1,4 @@
+// handler.go — HTTP handlers for listing, getting, and creating brands.
 package brand
 
 import (

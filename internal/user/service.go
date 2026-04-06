@@ -1,3 +1,4 @@
+// service.go — registration logic: input validation, captcha check, password hashing.
 package user
 
 import (

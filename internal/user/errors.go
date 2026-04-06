@@ -1,3 +1,4 @@
+// errors.go — sentinel errors for the user package.
 package user
 
 import (

@@ -1,3 +1,4 @@
+// errors.go — sentinel errors for the brand package.
 package brand
 
 import "errors"

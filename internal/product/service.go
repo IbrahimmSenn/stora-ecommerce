@@ -1,3 +1,4 @@
+// service.go — product business logic: validation, pagination defaults, UUID parsing.
 package product
 
 import (

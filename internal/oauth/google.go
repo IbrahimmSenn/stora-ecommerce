@@ -1,3 +1,4 @@
+// google.go — Google OAuth provider: consent redirect and token exchange.
 package oauth
 
 import (
