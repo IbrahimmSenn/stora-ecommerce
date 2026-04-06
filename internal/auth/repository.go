@@ -1,3 +1,4 @@
+// repository.go — postgres queries for refresh tokens, password reset tokens, and 2FA records.
 package auth
 
 import (

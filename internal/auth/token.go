@@ -1,3 +1,5 @@
+// token.go — JWT generation and validation.
+// Access tokens (15 min) carry user claims; refresh tokens (7 days) carry only the subject.
 package auth
 
 import (

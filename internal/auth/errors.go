@@ -1,3 +1,4 @@
+// errors.go — sentinel errors for the auth package.
 package auth
 
 import "errors"

@@ -1,3 +1,4 @@
+// handler.go — HTTP handlers for login, logout, token refresh, password reset, and 2FA.
 package auth
 
 import (
