@@ -1,4 +1,4 @@
-// repository.go — postgres queries for products, including faceted search with full-text search (tsvector).
+// repository.go — postgres queries for products. Search uses tsvector for full-text matching.
 package product
 
 import (

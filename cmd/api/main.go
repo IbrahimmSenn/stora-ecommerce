@@ -1,6 +1,4 @@
-// main.go — application entrypoint. Loads config, connects to the database,
-// wires up all dependencies, registers routes, and starts the HTTP server
-// with graceful shutdown on SIGINT/SIGTERM.
+// main.go — entrypoint. Connects to postgres, wires up all packages, and starts the server.
 package main
 
 import (
@@ -52,7 +50,6 @@ func main() {
 	log.Println("connected to database")
 
 	// --- Dependency wiring ---
-	// Each domain follows the same pattern: Repository (DB) -> Service (logic) -> Handler (HTTP).
 
 	captchaVerifier := captcha.NewVerifier(cfg.RecaptchaSecretKey, cfg.SkipCaptcha)
 	mail := mailer.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
@@ -82,8 +79,8 @@ func main() {
 	productHandler := product.NewHandler(productService)
 
 	// --- OAuth providers ---
-	// We inject token generation and storage as closures to avoid a direct
-	// dependency between the oauth and auth packages (would cause an import cycle).
+	// Token generation and storage are injected as closures to keep oauth
+	// and auth packages decoupled (otherwise they'd have a circular import).
 
 	oauthRepo := oauth.NewRepository(db)
 
@@ -126,8 +123,7 @@ func main() {
 	oauthHandler := oauth.NewHandler(oauthService, providers, cfg.BaseURL)
 
 	// --- Token validator for middleware ---
-	// Same pattern: wrap the auth.ValidateToken call in a closure so the
-	// middleware package doesn't need to import auth directly.
+	// Same idea as above — keeps middleware decoupled from auth.
 
 	tokenValidator := mw.TokenValidator(func(tokenString string) (*mw.TokenClaims, error) {
 		claims, err := auth.ValidateToken(tokenString, cfg.JWTSecret)
@@ -219,8 +215,6 @@ func main() {
 		r.Post("/api/v1/admin/categories", categoryHandler.Create)
 		r.Post("/api/v1/admin/brands", brandHandler.Create)
 	})
-
-	// --- Start server with graceful shutdown ---
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

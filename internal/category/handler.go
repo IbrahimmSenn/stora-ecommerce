@@ -1,4 +1,4 @@
-// handler.go — HTTP handlers for category tree listing, slug lookup, and creation.
+// handler.go — HTTP handlers for category listing, slug lookup, and creation.
 package category
 
 import (

@@ -1,4 +1,4 @@
-// repository.go — postgres queries for OAuth account linking and lookup.
+// repository.go — postgres queries for OAuth account linking.
 package oauth
 
 import (

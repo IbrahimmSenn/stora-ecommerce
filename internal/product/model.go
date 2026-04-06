@@ -1,4 +1,4 @@
-// model.go — product domain models, request/response types, and search parameters.
+// model.go — product types, request/response structs, and search params.
 package product
 
 import (

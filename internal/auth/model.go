@@ -1,5 +1,4 @@
-// model.go — request/response types and database models for authentication,
-// token management, password resets, and 2FA.
+// model.go — request/response types and DB models for auth, tokens, password resets, and 2FA.
 package auth
 
 import (

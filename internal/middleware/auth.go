@@ -1,5 +1,4 @@
-// auth.go — JWT authentication middleware. Extracts Bearer token, validates it,
-// and injects user claims (ID, email, role) into the request context.
+// auth.go — JWT middleware. Validates the Bearer token and puts user claims into the context.
 package middleware
 
 import (

@@ -1,5 +1,4 @@
-// service.go — business logic for login, token refresh (with replay detection),
-// password reset, and TOTP-based two-factor authentication.
+// service.go — login, token refresh with replay detection, password reset, and 2FA.
 package auth
 
 import (

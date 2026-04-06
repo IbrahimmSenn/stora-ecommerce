@@ -1,4 +1,4 @@
-// admin.go — role-based access control middleware. Rejects non-admin users.
+// admin.go — middleware that rejects non-admin users.
 package middleware
 
 import (

@@ -1,4 +1,4 @@
-// mailer.go — SMTP email sender used for password reset flows. No-ops if SMTP is not configured.
+// mailer.go — sends emails over SMTP. No-ops if SMTP is not configured.
 package mailer
 
 import (

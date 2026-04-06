@@ -1,4 +1,4 @@
-// handler.go — HTTP handlers for product search, detail, CRUD, and image management.
+// handler.go — HTTP handlers for product search, detail, CRUD, and images.
 package product
 
 import (

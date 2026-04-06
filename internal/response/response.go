@@ -1,4 +1,4 @@
-// response.go — shared JSON response helpers used by all handlers.
+// response.go — JSON response helpers.
 package response
 
 import (

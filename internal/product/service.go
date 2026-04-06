@@ -1,4 +1,4 @@
-// service.go — product business logic: validation, pagination defaults, UUID parsing.
+// service.go — product validation, pagination clamping, and UUID parsing.
 package product
 
 import (
