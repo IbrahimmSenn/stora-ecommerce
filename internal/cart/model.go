@@ -40,3 +40,13 @@ type CartResponse struct {
 	Items []CartItemDetail `json:"items"`
 	Total int64            `json:"total"`
 }
+
+type AddItemRequest struct {
+	ProductID string `json:"product_id" validate:"required,uuid"`
+	Quantity  int    `json:"quantity" validate:"required,min=1,max=99"`
+}
+
+type UpdateItemRequest struct {
+	ProductID string `json:"product_id" validate:"required,uuid"`
+	Quantity  int    `json:"quantity" validate:"required,min=1,max=99"`
+}
