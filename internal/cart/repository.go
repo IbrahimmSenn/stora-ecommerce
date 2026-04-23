@@ -13,11 +13,14 @@ import (
 type Repository interface {
 	GetOrCreateByUser(ctx context.Context, userID uuid.UUID) (*Cart, error)
 	GetOrCreateByGuest(ctx context.Context, sessionID uuid.UUID) (*Cart, error)
+	GetByUser(ctx context.Context, userID uuid.UUID) (*Cart, error)
+	GetByGuest(ctx context.Context, sessionID uuid.UUID) (*Cart, error)
 	GetByID(ctx context.Context, cartID uuid.UUID) (*Cart, error)
 	AddItem(ctx context.Context, cartID, productID uuid.UUID, quantity int) (*CartItem, error)
 	UpdateItemQuantity(ctx context.Context, cartID, productID uuid.UUID, quantity int) (*CartItem, error)
 	RemoveItem(ctx context.Context, cartID, productID uuid.UUID) error
 	ClearCart(ctx context.Context, cartID uuid.UUID) error
+	DeleteCart(ctx context.Context, cartID uuid.UUID) error
 	GetItems(ctx context.Context, cartID uuid.UUID) ([]CartItemDetail, error)
 }
 
@@ -73,6 +76,36 @@ func (r *postgresRepository) GetOrCreateByGuest(ctx context.Context, sessionID u
 	).Scan(&c.ID, &c.UserID, &c.GuestSessionID, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create cart for guest: %w", err)
+	}
+	return &c, nil
+}
+
+func (r *postgresRepository) GetByUser(ctx context.Context, userID uuid.UUID) (*Cart, error) {
+	var c Cart
+	err := r.db.QueryRow(ctx,
+		`SELECT id, user_id, guest_session_id, created_at, updated_at
+		 FROM carts WHERE user_id = $1`, userID,
+	).Scan(&c.ID, &c.UserID, &c.GuestSessionID, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrCartNotFound
+		}
+		return nil, fmt.Errorf("get cart by user: %w", err)
+	}
+	return &c, nil
+}
+
+func (r *postgresRepository) GetByGuest(ctx context.Context, sessionID uuid.UUID) (*Cart, error) {
+	var c Cart
+	err := r.db.QueryRow(ctx,
+		`SELECT id, user_id, guest_session_id, created_at, updated_at
+		 FROM carts WHERE guest_session_id = $1`, sessionID,
+	).Scan(&c.ID, &c.UserID, &c.GuestSessionID, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrCartNotFound
+		}
+		return nil, fmt.Errorf("get cart by guest: %w", err)
 	}
 	return &c, nil
 }
@@ -144,6 +177,15 @@ func (r *postgresRepository) ClearCart(ctx context.Context, cartID uuid.UUID) er
 	_, err := r.db.Exec(ctx, `DELETE FROM cart_items WHERE cart_id = $1`, cartID)
 	if err != nil {
 		return fmt.Errorf("clear cart: %w", err)
+	}
+	return nil
+}
+
+// DeleteCart removes the cart row itself; cart_items cascade via FK.
+func (r *postgresRepository) DeleteCart(ctx context.Context, cartID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM carts WHERE id = $1`, cartID)
+	if err != nil {
+		return fmt.Errorf("delete cart: %w", err)
 	}
 	return nil
 }

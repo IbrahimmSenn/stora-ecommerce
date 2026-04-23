@@ -50,3 +50,23 @@ type UpdateItemRequest struct {
 	ProductID string `json:"product_id" validate:"required,uuid"`
 	Quantity  int    `json:"quantity" validate:"required,min=1,max=99"`
 }
+
+// MergeStatusResponse reports whether a guest cart and a user cart both hold
+// items and need a manual choice. When AutoMerged is true the guest items were
+// already folded into the user cart and the caller should clear the cookie.
+type MergeStatusResponse struct {
+	Conflict   bool          `json:"conflict"`
+	AutoMerged bool          `json:"auto_merged,omitempty"`
+	GuestCart  *CartResponse `json:"guest_cart,omitempty"`
+	UserCart   *CartResponse `json:"user_cart,omitempty"`
+}
+
+// MergeStrategy decides which cart's items survive when both exist.
+const (
+	MergeStrategyGuest = "guest"
+	MergeStrategyUser  = "user"
+)
+
+type MergeRequest struct {
+	Strategy string `json:"strategy" validate:"required,oneof=guest user"`
+}

@@ -2,3 +2,5 @@
 .git
 *.md
 project.md
+web/node_modules
+web/dist

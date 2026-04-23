@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/brand"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/category"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/config"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
@@ -77,6 +79,10 @@ func main() {
 	productRepo := product.NewRepository(db)
 	productService := product.NewService(productRepo)
 	productHandler := product.NewHandler(productService)
+
+	cartRepo := cart.NewRepository(db)
+	cartService := cart.NewService(cartRepo, productRepo)
+	cartHandler := cart.NewHandler(cartService)
 
 	// --- OAuth providers ---
 	// Token generation and storage are injected as closures to keep oauth
@@ -154,12 +160,11 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	// --- Static frontend (test panel served at /) ---
-	staticFS := http.FileServer(http.Dir("static"))
-	r.Handle("/static/*", http.StripPrefix("/static/", staticFS))
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "static/index.html")
-	})
+	// --- Frontend (React SPA built into web/dist) ---
+	webDist := "web/dist"
+	webFS := http.FileServer(http.Dir(webDist))
+	r.Handle("/assets/*", webFS)
+	r.Get("/favicon.svg", webFS.ServeHTTP)
 
 	// Expose reCAPTCHA site key to frontend (public, non-secret)
 	r.Get("/api/v1/config/recaptcha", func(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +206,26 @@ func main() {
 	r.Get("/api/v1/brands", brandHandler.List)
 	r.Get("/api/v1/brands/{id}", brandHandler.GetByID)
 
+	// --- Cart (works for both logged-in users and guests) ---
+	r.Group(func(r chi.Router) {
+		r.Use(mw.OptionalAuth(tokenValidator))
+		r.Use(mw.GuestSession)
+
+		r.Get("/api/v1/cart", cartHandler.GetCart)
+		r.Post("/api/v1/cart/items", cartHandler.AddItem)
+		r.Put("/api/v1/cart/items/{productId}", cartHandler.UpdateItem)
+		r.Delete("/api/v1/cart/items/{productId}", cartHandler.RemoveItem)
+		r.Delete("/api/v1/cart", cartHandler.ClearCart)
+	})
+
+	// --- Cart merge (strict auth; guest cookie read but not auto-issued) ---
+	r.Group(func(r chi.Router) {
+		r.Use(mw.Auth(tokenValidator))
+
+		r.Get("/api/v1/cart/merge-status", cartHandler.GetMergeStatus)
+		r.Post("/api/v1/cart/merge", cartHandler.PostMerge)
+	})
+
 	// --- Admin routes (valid token + role=admin required) ---
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Auth(tokenValidator))
@@ -214,6 +239,16 @@ func main() {
 
 		r.Post("/api/v1/admin/categories", categoryHandler.Create)
 		r.Post("/api/v1/admin/brands", brandHandler.Create)
+	})
+
+	// --- SPA fallback: any unmatched non-API GET serves index.html so React
+	// Router can handle client-side routes. Must be registered last. ---
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			response.Error(w, http.StatusNotFound, "not found")
+			return
+		}
+		http.ServeFile(w, r, webDist+"/index.html")
 	})
 
 	srv := &http.Server{
