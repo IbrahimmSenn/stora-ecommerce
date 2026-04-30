@@ -89,6 +89,15 @@ export function CartPage() {
           </p>
         </div>
       </div>
+
+      <div className="mt-8 flex justify-end">
+        <Link
+          to="/checkout"
+          className="px-8 py-3 bg-gray-900 text-white text-sm uppercase tracking-wider"
+        >
+          Checkout
+        </Link>
+      </div>
     </div>
   )
 }

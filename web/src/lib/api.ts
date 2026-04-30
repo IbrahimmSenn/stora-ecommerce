@@ -99,6 +99,66 @@ export type LoginResponse = {
   token_type: string
 }
 
+export type ShippingMethod = 'standard' | 'express'
+
+export type CheckoutAddress = {
+  recipient_name: string
+  line1: string
+  line2?: string
+  city: string
+  region: string
+  postal_code: string
+  country: string
+}
+
+export type CheckoutRequest = {
+  email: string
+  phone?: string
+  shipping_method: ShippingMethod
+  address: CheckoutAddress
+}
+
+export type Order = {
+  id: string
+  order_number: string
+  user_id?: string | null
+  guest_session_id?: string | null
+  status: string
+  email: string
+  phone?: string
+  subtotal_cents: number
+  shipping_cents: number
+  total_cents: number
+  shipping_method: ShippingMethod
+  created_at: string
+  updated_at: string
+}
+
+export type OrderItem = {
+  id: string
+  order_id: string
+  product_id?: string | null
+  product_name: string
+  unit_price_cents: number
+  quantity: number
+  created_at: string
+}
+
+export type OrderResponse = {
+  order: Order
+  items: OrderItem[]
+  address: CheckoutAddress
+}
+
+export type OrderSummary = {
+  id: string
+  order_number: string
+  status: string
+  total_cents: number
+  item_count: number
+  created_at: string
+}
+
 export const api = {
   listProducts: () => request<ProductsResponse>('/api/v1/products'),
   getCart: () => request<Cart>('/api/v1/cart'),
@@ -127,6 +187,22 @@ export const api = {
       method: 'POST',
       body: { strategy },
     }),
+  checkout: (req: CheckoutRequest) =>
+    request<OrderResponse>('/api/v1/checkout', {
+      method: 'POST',
+      body: req,
+    }),
+  listOrders: (params?: { status?: string; from?: string; to?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.status) q.set('status', params.status)
+    if (params?.from) q.set('from', params.from)
+    if (params?.to) q.set('to', params.to)
+    const qs = q.toString()
+    return request<OrderSummary[]>(`/api/v1/orders${qs ? `?${qs}` : ''}`)
+  },
+  getOrder: (id: string) => request<OrderResponse>(`/api/v1/orders/${id}`),
+  cancelOrder: (id: string) =>
+    request<OrderResponse>(`/api/v1/orders/${id}/cancel`, { method: 'POST' }),
 }
 
 export function formatPrice(cents: number): string {
