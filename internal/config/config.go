@@ -10,11 +10,12 @@ import (
 )
 
 type Config struct {
-	DatabaseURL string
-	BcryptCost  int
-	JWTSecret   string
-	Port        string
-	BaseURL     string
+	DatabaseURL   string
+	BcryptCost    int
+	JWTSecret     string
+	EncryptionKey string
+	Port          string
+	BaseURL       string
 
 	// OAuth
 	GoogleClientID     string
@@ -39,10 +40,11 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		JWTSecret:   os.Getenv("JWT_SECRET"),
-		Port:        os.Getenv("PORT"),
-		BaseURL:     os.Getenv("BASE_URL"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		JWTSecret:     os.Getenv("JWT_SECRET"),
+		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
+		Port:          os.Getenv("PORT"),
+		BaseURL:       os.Getenv("BASE_URL"),
 
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
@@ -66,6 +68,13 @@ func Load() (*Config, error) {
 
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
+	}
+
+	if cfg.EncryptionKey == "" {
+		return nil, fmt.Errorf("ENCRYPTION_KEY is required (generate with: openssl rand -hex 32)")
+	}
+	if len(cfg.EncryptionKey) != 64 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be 64 hex chars (32 bytes), got %d", len(cfg.EncryptionKey))
 	}
 
 	if cfg.Port == "" {

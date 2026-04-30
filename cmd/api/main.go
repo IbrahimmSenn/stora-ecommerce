@@ -22,6 +22,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/category"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/config"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/oauth"
@@ -55,6 +56,12 @@ func main() {
 
 	captchaVerifier := captcha.NewVerifier(cfg.RecaptchaSecretKey, cfg.SkipCaptcha)
 	mail := mailer.New(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom)
+
+	encryptor, err := crypto.NewEncryptor(cfg.EncryptionKey)
+	if err != nil {
+		log.Fatalf("init encryptor: %v", err)
+	}
+	_ = encryptor // wired in next chunk when orders package lands
 
 	userRepo := user.NewUserRepository(db)
 	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier)
