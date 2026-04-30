@@ -3,6 +3,8 @@ import { Nav } from './components/Nav'
 import { ProductsPage } from './products/ProductsPage'
 import { CartPage } from './cart/CartPage'
 import { CheckoutPage } from './checkout/CheckoutPage'
+import { OrderDetailPage } from './orders/OrderDetailPage'
+import { OrderHistoryPage } from './orders/OrderHistoryPage'
 import { LoginPage } from './auth/LoginPage'
 
 function App() {
@@ -13,6 +15,9 @@ function App() {
         <Route path="/" element={<ProductsPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/orders" element={<OrderHistoryPage />} />
+        <Route path="/orders/:id" element={<OrderDetailPage />} />
+        <Route path="/orders/:id/confirmation" element={<OrderDetailPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="*" element={<p className="p-8">Not found.</p>} />
       </Routes>

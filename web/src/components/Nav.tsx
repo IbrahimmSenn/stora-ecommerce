@@ -32,6 +32,12 @@ export function Nav() {
         >
           Cart {itemCount > 0 && <span className="tabular-nums">({itemCount})</span>}
         </NavLink>
+        <NavLink
+          to="/orders"
+          className={({ isActive }) => (isActive ? 'underline' : '')}
+        >
+          Orders
+        </NavLink>
       </div>
       <div className="ml-auto text-sm flex items-center gap-3">
         {isAuthed ? (
