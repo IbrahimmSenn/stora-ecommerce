@@ -22,20 +22,23 @@ type LockedProduct struct {
 	Stock int
 }
 
+// TxRepo is the set of operations the service runs inside a single
+// transaction during checkout and cancel. The repository owns transaction
+// lifecycle (see Repository.WithTx) so the service never touches pgx.Tx
+// directly — that keeps unit tests free of pgx-mocking gymnastics.
+type TxRepo interface {
+	LockProductForUpdate(ctx context.Context, productID uuid.UUID) (*LockedProduct, error)
+	DecrementStock(ctx context.Context, productID uuid.UUID, quantity int) error
+	IncrementStock(ctx context.Context, productID uuid.UUID, quantity int) error
+	DeleteCartItems(ctx context.Context, cartID uuid.UUID) error
+	CreateOrder(ctx context.Context, row *orderRow) error
+	CreateOrderItem(ctx context.Context, item *OrderItem) error
+	CreateShippingAddress(ctx context.Context, orderID uuid.UUID, addr *addressRow) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+}
+
 type Repository interface {
-	BeginTx(ctx context.Context) (pgx.Tx, error)
-
-	// Tx-scoped helpers used by the checkout flow. They live here (rather than
-	// on cart/product repos) so the orders service can drive a single
-	// transaction across orders + stock decrement + cart clear.
-	LockProductForUpdateTx(ctx context.Context, tx pgx.Tx, productID uuid.UUID) (*LockedProduct, error)
-	DecrementStockTx(ctx context.Context, tx pgx.Tx, productID uuid.UUID, quantity int) error
-	IncrementStockTx(ctx context.Context, tx pgx.Tx, productID uuid.UUID, quantity int) error
-	DeleteCartItemsTx(ctx context.Context, tx pgx.Tx, cartID uuid.UUID) error
-
-	CreateOrderTx(ctx context.Context, tx pgx.Tx, row *orderRow) error
-	CreateOrderItemTx(ctx context.Context, tx pgx.Tx, item *OrderItem) error
-	CreateShippingAddressTx(ctx context.Context, tx pgx.Tx, orderID uuid.UUID, addr *addressRow) error
+	WithTx(ctx context.Context, fn func(tx TxRepo) error) error
 
 	GetByID(ctx context.Context, id uuid.UUID) (*orderRow, []OrderItem, *addressRow, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
@@ -52,109 +55,18 @@ func NewRepository(db *pgxpool.Pool) Repository {
 	return &postgresRepository{db: db}
 }
 
-func (r *postgresRepository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+func (r *postgresRepository) WithTx(ctx context.Context, fn func(tx TxRepo) error) error {
 	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
-	return tx, nil
-}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-func (r *postgresRepository) LockProductForUpdateTx(ctx context.Context, tx pgx.Tx, productID uuid.UUID) (*LockedProduct, error) {
-	var p LockedProduct
-	err := tx.QueryRow(ctx,
-		`SELECT id, name, price, stock_quantity FROM products WHERE id = $1 FOR UPDATE`,
-		productID,
-	).Scan(&p.ID, &p.Name, &p.Price, &p.Stock)
-	if err != nil {
-		return nil, fmt.Errorf("lock product: %w", err)
+	if err := fn(&pgTx{tx: tx}); err != nil {
+		return err
 	}
-	return &p, nil
-}
-
-func (r *postgresRepository) DecrementStockTx(ctx context.Context, tx pgx.Tx, productID uuid.UUID, quantity int) error {
-	tag, err := tx.Exec(ctx,
-		`UPDATE products SET stock_quantity = stock_quantity - $2 WHERE id = $1`,
-		productID, quantity,
-	)
-	if err != nil {
-		return fmt.Errorf("decrement stock: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("decrement stock: product %s missing", productID)
-	}
-	return nil
-}
-
-func (r *postgresRepository) IncrementStockTx(ctx context.Context, tx pgx.Tx, productID uuid.UUID, quantity int) error {
-	_, err := tx.Exec(ctx,
-		`UPDATE products SET stock_quantity = stock_quantity + $2 WHERE id = $1`,
-		productID, quantity,
-	)
-	if err != nil {
-		return fmt.Errorf("increment stock: %w", err)
-	}
-	return nil
-}
-
-func (r *postgresRepository) DeleteCartItemsTx(ctx context.Context, tx pgx.Tx, cartID uuid.UUID) error {
-	_, err := tx.Exec(ctx, `DELETE FROM cart_items WHERE cart_id = $1`, cartID)
-	if err != nil {
-		return fmt.Errorf("clear cart items: %w", err)
-	}
-	return nil
-}
-
-func (r *postgresRepository) CreateOrderTx(ctx context.Context, tx pgx.Tx, row *orderRow) error {
-	number, err := generateOrderNumber()
-	if err != nil {
-		return fmt.Errorf("generate order number: %w", err)
-	}
-	row.OrderNumber = number
-
-	err = tx.QueryRow(ctx,
-		`INSERT INTO orders (
-			order_number, user_id, guest_session_id, status,
-			email_encrypted, phone_encrypted,
-			subtotal_cents, shipping_cents, total_cents, shipping_method
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-		RETURNING id, created_at, updated_at`,
-		row.OrderNumber, row.UserID, row.GuestSessionID, row.Status,
-		row.EmailEnc, row.PhoneEnc,
-		row.SubtotalCents, row.ShippingCents, row.TotalCents, row.ShippingMethod,
-	).Scan(&row.ID, &row.CreatedAt, &row.UpdatedAt)
-	if err != nil {
-		return fmt.Errorf("insert order: %w", err)
-	}
-	return nil
-}
-
-func (r *postgresRepository) CreateOrderItemTx(ctx context.Context, tx pgx.Tx, item *OrderItem) error {
-	err := tx.QueryRow(ctx,
-		`INSERT INTO order_items (order_id, product_id, product_name, unit_price_cents, quantity)
-		 VALUES ($1,$2,$3,$4,$5)
-		 RETURNING id, created_at`,
-		item.OrderID, item.ProductID, item.ProductName, item.UnitPriceCents, item.Quantity,
-	).Scan(&item.ID, &item.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("insert order item: %w", err)
-	}
-	return nil
-}
-
-func (r *postgresRepository) CreateShippingAddressTx(ctx context.Context, tx pgx.Tx, orderID uuid.UUID, a *addressRow) error {
-	_, err := tx.Exec(ctx,
-		`INSERT INTO shipping_addresses (
-			order_id,
-			recipient_name_encrypted, line1_encrypted, line2_encrypted,
-			city_encrypted, region_encrypted, postal_code_encrypted, country_encrypted
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		orderID,
-		a.RecipientNameEnc, a.Line1Enc, a.Line2Enc,
-		a.CityEnc, a.RegionEnc, a.PostalCodeEnc, a.CountryEnc,
-	)
-	if err != nil {
-		return fmt.Errorf("insert shipping address: %w", err)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
@@ -275,8 +187,6 @@ func (r *postgresRepository) UpdateStatus(ctx context.Context, id uuid.UUID, sta
 	return nil
 }
 
-// ItemsForRestock returns the items needed to restore stock when an order is
-// cancelled. Filters out items whose product was deleted (product_id NULL).
 func (r *postgresRepository) ItemsForRestock(ctx context.Context, orderID uuid.UUID) ([]OrderItem, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT id, order_id, product_id, product_name, unit_price_cents, quantity, created_at
@@ -299,6 +209,122 @@ func (r *postgresRepository) ItemsForRestock(ctx context.Context, orderID uuid.U
 		items = append(items, it)
 	}
 	return items, nil
+}
+
+// pgTx is the production TxRepo backed by a real pgx.Tx.
+
+type pgTx struct {
+	tx pgx.Tx
+}
+
+func (t *pgTx) LockProductForUpdate(ctx context.Context, productID uuid.UUID) (*LockedProduct, error) {
+	var p LockedProduct
+	err := t.tx.QueryRow(ctx,
+		`SELECT id, name, price, stock_quantity FROM products WHERE id = $1 FOR UPDATE`,
+		productID,
+	).Scan(&p.ID, &p.Name, &p.Price, &p.Stock)
+	if err != nil {
+		return nil, fmt.Errorf("lock product: %w", err)
+	}
+	return &p, nil
+}
+
+func (t *pgTx) DecrementStock(ctx context.Context, productID uuid.UUID, quantity int) error {
+	tag, err := t.tx.Exec(ctx,
+		`UPDATE products SET stock_quantity = stock_quantity - $2 WHERE id = $1`,
+		productID, quantity,
+	)
+	if err != nil {
+		return fmt.Errorf("decrement stock: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("decrement stock: product %s missing", productID)
+	}
+	return nil
+}
+
+func (t *pgTx) IncrementStock(ctx context.Context, productID uuid.UUID, quantity int) error {
+	_, err := t.tx.Exec(ctx,
+		`UPDATE products SET stock_quantity = stock_quantity + $2 WHERE id = $1`,
+		productID, quantity,
+	)
+	if err != nil {
+		return fmt.Errorf("increment stock: %w", err)
+	}
+	return nil
+}
+
+func (t *pgTx) DeleteCartItems(ctx context.Context, cartID uuid.UUID) error {
+	_, err := t.tx.Exec(ctx, `DELETE FROM cart_items WHERE cart_id = $1`, cartID)
+	if err != nil {
+		return fmt.Errorf("clear cart items: %w", err)
+	}
+	return nil
+}
+
+func (t *pgTx) CreateOrder(ctx context.Context, row *orderRow) error {
+	number, err := generateOrderNumber()
+	if err != nil {
+		return fmt.Errorf("generate order number: %w", err)
+	}
+	row.OrderNumber = number
+
+	err = t.tx.QueryRow(ctx,
+		`INSERT INTO orders (
+			order_number, user_id, guest_session_id, status,
+			email_encrypted, phone_encrypted,
+			subtotal_cents, shipping_cents, total_cents, shipping_method
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		RETURNING id, created_at, updated_at`,
+		row.OrderNumber, row.UserID, row.GuestSessionID, row.Status,
+		row.EmailEnc, row.PhoneEnc,
+		row.SubtotalCents, row.ShippingCents, row.TotalCents, row.ShippingMethod,
+	).Scan(&row.ID, &row.CreatedAt, &row.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("insert order: %w", err)
+	}
+	return nil
+}
+
+func (t *pgTx) CreateOrderItem(ctx context.Context, item *OrderItem) error {
+	err := t.tx.QueryRow(ctx,
+		`INSERT INTO order_items (order_id, product_id, product_name, unit_price_cents, quantity)
+		 VALUES ($1,$2,$3,$4,$5)
+		 RETURNING id, created_at`,
+		item.OrderID, item.ProductID, item.ProductName, item.UnitPriceCents, item.Quantity,
+	).Scan(&item.ID, &item.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert order item: %w", err)
+	}
+	return nil
+}
+
+func (t *pgTx) CreateShippingAddress(ctx context.Context, orderID uuid.UUID, a *addressRow) error {
+	_, err := t.tx.Exec(ctx,
+		`INSERT INTO shipping_addresses (
+			order_id,
+			recipient_name_encrypted, line1_encrypted, line2_encrypted,
+			city_encrypted, region_encrypted, postal_code_encrypted, country_encrypted
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		orderID,
+		a.RecipientNameEnc, a.Line1Enc, a.Line2Enc,
+		a.CityEnc, a.RegionEnc, a.PostalCodeEnc, a.CountryEnc,
+	)
+	if err != nil {
+		return fmt.Errorf("insert shipping address: %w", err)
+	}
+	return nil
+}
+
+func (t *pgTx) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	tag, err := t.tx.Exec(ctx, `UPDATE orders SET status = $2 WHERE id = $1`, id, status)
+	if err != nil {
+		return fmt.Errorf("update order status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrOrderNotFound
+	}
+	return nil
 }
 
 // generateOrderNumber returns a 17-char human-friendly id like ORD-K7H4Z2QF8M3.

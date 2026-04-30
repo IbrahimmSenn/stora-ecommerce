@@ -67,102 +67,96 @@ func (s *service) Checkout(ctx context.Context, userID *uuid.UUID, guestID *uuid
 		return nil, ErrCartEmpty
 	}
 
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Lock every product the cart references and re-verify stock+price.
-	// Locking up front (before any writes) avoids deadlocks between
-	// concurrent checkouts that would otherwise lock products in different
-	// orders. We sort by product ID for the same reason.
-	type pendingItem struct {
-		ProductID  uuid.UUID
-		Name       string
-		UnitPrice  int64
-		Quantity   int
-	}
-	pending := make([]pendingItem, 0, len(cartView.Items))
-	subtotal := int64(0)
-	for _, it := range cartView.Items {
-		locked, err := s.repo.LockProductForUpdateTx(ctx, tx, it.ProductID)
-		if err != nil {
-			return nil, err
-		}
-		if locked.Stock < it.Quantity {
-			return nil, ErrStockChanged
-		}
-		if locked.Price != it.ProductPrice {
-			return nil, ErrStockChanged
-		}
-		subtotal += locked.Price * int64(it.Quantity)
-		pending = append(pending, pendingItem{
-			ProductID: locked.ID,
-			Name:      locked.Name,
-			UnitPrice: locked.Price,
-			Quantity:  it.Quantity,
-		})
-	}
-
-	emailEnc, err := s.encryptor.Encrypt(req.Email)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt email: %w", err)
-	}
-	phoneEnc, err := s.encryptor.Encrypt(req.Phone)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt phone: %w", err)
-	}
-
 	row := &orderRow{
 		UserID:         userID,
 		GuestSessionID: guestID,
 		Status:         StatusPendingPayment,
-		EmailEnc:       emailEnc,
-		PhoneEnc:       phoneEnc,
-		SubtotalCents:  subtotal,
 		ShippingCents:  shippingCents,
-		TotalCents:     subtotal + shippingCents,
 		ShippingMethod: req.ShippingMethod,
 	}
-	if err := s.repo.CreateOrderTx(ctx, tx, row); err != nil {
-		return nil, err
-	}
+	var items []OrderItem
 
-	items := make([]OrderItem, 0, len(pending))
-	for _, p := range pending {
-		pid := p.ProductID
-		it := OrderItem{
-			OrderID:        row.ID,
-			ProductID:      &pid,
-			ProductName:    p.Name,
-			UnitPriceCents: p.UnitPrice,
-			Quantity:       p.Quantity,
+	err = s.repo.WithTx(ctx, func(tx TxRepo) error {
+		// Lock every product the cart references and re-verify stock+price
+		// up front (before any writes) so concurrent checkouts can't deadlock
+		// each other on overlapping items.
+		type pendingItem struct {
+			ProductID uuid.UUID
+			Name      string
+			UnitPrice int64
+			Quantity  int
 		}
-		if err := s.repo.CreateOrderItemTx(ctx, tx, &it); err != nil {
-			return nil, err
+		pending := make([]pendingItem, 0, len(cartView.Items))
+		subtotal := int64(0)
+		for _, it := range cartView.Items {
+			locked, err := tx.LockProductForUpdate(ctx, it.ProductID)
+			if err != nil {
+				return err
+			}
+			if locked.Stock < it.Quantity {
+				return ErrStockChanged
+			}
+			if locked.Price != it.ProductPrice {
+				return ErrStockChanged
+			}
+			subtotal += locked.Price * int64(it.Quantity)
+			pending = append(pending, pendingItem{
+				ProductID: locked.ID,
+				Name:      locked.Name,
+				UnitPrice: locked.Price,
+				Quantity:  it.Quantity,
+			})
 		}
-		items = append(items, it)
 
-		if err := s.repo.DecrementStockTx(ctx, tx, p.ProductID, p.Quantity); err != nil {
-			return nil, err
+		emailEnc, err := s.encryptor.Encrypt(req.Email)
+		if err != nil {
+			return fmt.Errorf("encrypt email: %w", err)
 		}
-	}
+		phoneEnc, err := s.encryptor.Encrypt(req.Phone)
+		if err != nil {
+			return fmt.Errorf("encrypt phone: %w", err)
+		}
+		row.EmailEnc = emailEnc
+		row.PhoneEnc = phoneEnc
+		row.SubtotalCents = subtotal
+		row.TotalCents = subtotal + shippingCents
 
-	addr, err := s.encryptAddress(req.Address)
+		if err := tx.CreateOrder(ctx, row); err != nil {
+			return err
+		}
+
+		items = make([]OrderItem, 0, len(pending))
+		for _, p := range pending {
+			pid := p.ProductID
+			it := OrderItem{
+				OrderID:        row.ID,
+				ProductID:      &pid,
+				ProductName:    p.Name,
+				UnitPriceCents: p.UnitPrice,
+				Quantity:       p.Quantity,
+			}
+			if err := tx.CreateOrderItem(ctx, &it); err != nil {
+				return err
+			}
+			items = append(items, it)
+
+			if err := tx.DecrementStock(ctx, p.ProductID, p.Quantity); err != nil {
+				return err
+			}
+		}
+
+		addr, err := s.encryptAddress(req.Address)
+		if err != nil {
+			return err
+		}
+		if err := tx.CreateShippingAddress(ctx, row.ID, addr); err != nil {
+			return err
+		}
+
+		return tx.DeleteCartItems(ctx, cartView.ID)
+	})
 	if err != nil {
 		return nil, err
-	}
-	if err := s.repo.CreateShippingAddressTx(ctx, tx, row.ID, addr); err != nil {
-		return nil, err
-	}
-
-	if err := s.repo.DeleteCartItemsTx(ctx, tx, cartView.ID); err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit checkout: %w", err)
 	}
 
 	order, err := s.decryptOrder(row)
@@ -220,30 +214,24 @@ func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.U
 		return nil, ErrNotCancellable
 	}
 
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	items, err := s.repo.ItemsForRestock(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	for _, it := range items {
-		if it.ProductID == nil {
-			continue
-		}
-		if err := s.repo.IncrementStockTx(ctx, tx, *it.ProductID, it.Quantity); err != nil {
-			return nil, err
-		}
-	}
 
-	if _, err := tx.Exec(ctx, `UPDATE orders SET status = $2 WHERE id = $1`, id, StatusCancelled); err != nil {
-		return nil, fmt.Errorf("set cancelled: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit cancel: %w", err)
+	err = s.repo.WithTx(ctx, func(tx TxRepo) error {
+		for _, it := range items {
+			if it.ProductID == nil {
+				continue
+			}
+			if err := tx.IncrementStock(ctx, *it.ProductID, it.Quantity); err != nil {
+				return err
+			}
+		}
+		return tx.UpdateStatus(ctx, id, StatusCancelled)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return s.GetByID(ctx, userID, guestID, id)
