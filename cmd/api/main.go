@@ -26,6 +26,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/oauth"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
@@ -61,7 +62,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("init encryptor: %v", err)
 	}
-	_ = encryptor // wired in next chunk when orders package lands
 
 	userRepo := user.NewUserRepository(db)
 	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier)
@@ -90,6 +90,10 @@ func main() {
 	cartRepo := cart.NewRepository(db)
 	cartService := cart.NewService(cartRepo, productRepo)
 	cartHandler := cart.NewHandler(cartService)
+
+	ordersRepo := orders.NewRepository(db)
+	ordersService := orders.NewService(ordersRepo, cartService, encryptor)
+	ordersHandler := orders.NewHandler(ordersService)
 
 	// --- OAuth providers ---
 	// Token generation and storage are injected as closures to keep oauth
@@ -223,6 +227,12 @@ func main() {
 		r.Put("/api/v1/cart/items/{productId}", cartHandler.UpdateItem)
 		r.Delete("/api/v1/cart/items/{productId}", cartHandler.RemoveItem)
 		r.Delete("/api/v1/cart", cartHandler.ClearCart)
+
+		// --- Checkout / Orders (same auth surface as cart) ---
+		r.Post("/api/v1/checkout", ordersHandler.Checkout)
+		r.Get("/api/v1/orders", ordersHandler.List)
+		r.Get("/api/v1/orders/{id}", ordersHandler.GetByID)
+		r.Post("/api/v1/orders/{id}/cancel", ordersHandler.Cancel)
 	})
 
 	// --- Cart merge (strict auth; guest cookie read but not auto-issued) ---
