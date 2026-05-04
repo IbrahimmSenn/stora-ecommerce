@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stripe/stripe-go/v76"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/brand"
@@ -62,6 +63,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("init encryptor: %v", err)
 	}
+
+	stripe.Key = cfg.StripeSecretKey
 
 	userRepo := user.NewUserRepository(db)
 	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier)
@@ -180,6 +183,11 @@ func main() {
 	// Expose reCAPTCHA site key to frontend (public, non-secret)
 	r.Get("/api/v1/config/recaptcha", func(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusOK, map[string]string{"site_key": cfg.RecaptchaSiteKey})
+	})
+
+	// Expose Stripe publishable key to frontend (public, non-secret)
+	r.Get("/api/v1/config/stripe", func(w http.ResponseWriter, r *http.Request) {
+		response.JSON(w, http.StatusOK, map[string]string{"publishable_key": cfg.StripePublishableKey})
 	})
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
