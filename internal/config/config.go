@@ -28,12 +28,17 @@ type Config struct {
 	RecaptchaSecretKey string
 	SkipCaptcha        bool
 
-	// SMTP (password recovery)
+	// SMTP (password recovery + order emails)
 	SMTPHost string
 	SMTPPort string
 	SMTPUser string
 	SMTPPass string
 	SMTPFrom string
+
+	// Stripe
+	StripeSecretKey      string
+	StripeWebhookSecret  string
+	StripePublishableKey string
 }
 
 func Load() (*Config, error) {
@@ -60,6 +65,10 @@ func Load() (*Config, error) {
 		SMTPUser: os.Getenv("SMTP_USER"),
 		SMTPPass: os.Getenv("SMTP_PASS"),
 		SMTPFrom: os.Getenv("SMTP_FROM"),
+
+		StripeSecretKey:      os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret:  os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		StripePublishableKey: os.Getenv("STRIPE_PUBLISHABLE_KEY"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -75,6 +84,16 @@ func Load() (*Config, error) {
 	}
 	if len(cfg.EncryptionKey) != 64 {
 		return nil, fmt.Errorf("ENCRYPTION_KEY must be 64 hex chars (32 bytes), got %d", len(cfg.EncryptionKey))
+	}
+
+	if cfg.StripeSecretKey == "" {
+		return nil, fmt.Errorf("STRIPE_SECRET_KEY is required (sk_test_... from https://dashboard.stripe.com/test/apikeys)")
+	}
+	if cfg.StripeWebhookSecret == "" {
+		return nil, fmt.Errorf("STRIPE_WEBHOOK_SECRET is required (whsec_... shown by `stripe listen`)")
+	}
+	if cfg.StripePublishableKey == "" {
+		return nil, fmt.Errorf("STRIPE_PUBLISHABLE_KEY is required (pk_test_...)")
 	}
 
 	if cfg.Port == "" {
