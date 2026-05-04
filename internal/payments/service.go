@@ -12,9 +12,15 @@ import (
 	"github.com/stripe/stripe-go/v76/paymentintent"
 	"github.com/stripe/stripe-go/v76/webhook"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 )
+
+// Mailer is the slice of internal/mailer.Mailer the service uses. Defined
+// here (consumer-side) so tests can stub it without touching the mailer
+// package.
+type Mailer interface {
+	Send(to, subject, body string) error
+}
 
 // IntentClient is the slice of the Stripe SDK we actually call. Tests stub
 // this so they don't need network access or real keys.
@@ -54,13 +60,13 @@ type Service interface {
 type service struct {
 	repo            Repository
 	orders          orders.Service
-	mail            *mailer.Mailer
+	mail            Mailer
 	stripe          IntentClient
 	webhookSecret   string
 	publishableKey  string
 }
 
-func NewService(repo Repository, ordersSvc orders.Service, mail *mailer.Mailer, stripe IntentClient, webhookSecret, publishableKey string) Service {
+func NewService(repo Repository, ordersSvc orders.Service, mail Mailer, stripe IntentClient, webhookSecret, publishableKey string) Service {
 	return &service{
 		repo:           repo,
 		orders:         ordersSvc,
