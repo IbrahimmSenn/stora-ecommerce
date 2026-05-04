@@ -25,6 +25,13 @@ type Service interface {
 	GetByID(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, id uuid.UUID) (*OrderResponse, error)
 	ListMine(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
 	Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, id uuid.UUID) (*OrderResponse, error)
+
+	// Service-to-service entry points used by the payments package — they
+	// bypass the user/guest owner check because the caller is the system
+	// itself (a Stripe webhook), not an HTTP request.
+	LoadByID(ctx context.Context, id uuid.UUID) (*OrderResponse, error)
+	MarkPaid(ctx context.Context, id uuid.UUID) error
+	MarkPaymentFailed(ctx context.Context, id uuid.UUID) error
 }
 
 type service struct {
@@ -235,6 +242,36 @@ func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.U
 	}
 
 	return s.GetByID(ctx, userID, guestID, id)
+}
+
+// LoadByID returns the decrypted order without an owner check. Reserved for
+// internal callers (e.g. the Stripe webhook path) where the user/guest
+// identity isn't available — never expose this through an HTTP handler.
+func (s *service) LoadByID(ctx context.Context, id uuid.UUID) (*OrderResponse, error) {
+	row, items, addr, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	order, err := s.decryptOrder(row)
+	if err != nil {
+		return nil, err
+	}
+	address, err := s.decryptAddress(addr)
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []OrderItem{}
+	}
+	return &OrderResponse{Order: *order, Items: items, Address: *address}, nil
+}
+
+func (s *service) MarkPaid(ctx context.Context, id uuid.UUID) error {
+	return s.repo.UpdateStatus(ctx, id, StatusPaid)
+}
+
+func (s *service) MarkPaymentFailed(ctx context.Context, id uuid.UUID) error {
+	return s.repo.UpdateStatus(ctx, id, StatusPaymentFailed)
 }
 
 // helpers --------------------------------------------------------------------
