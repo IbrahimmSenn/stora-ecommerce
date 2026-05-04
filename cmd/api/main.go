@@ -28,6 +28,7 @@ import (
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/oauth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/payments"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
@@ -97,6 +98,14 @@ func main() {
 	ordersRepo := orders.NewRepository(db)
 	ordersService := orders.NewService(ordersRepo, cartService, encryptor)
 	ordersHandler := orders.NewHandler(ordersService)
+
+	paymentsRepo := payments.NewRepository(db)
+	paymentsService := payments.NewService(
+		paymentsRepo, ordersService, mail,
+		payments.NewStripeClient(),
+		cfg.StripeWebhookSecret, cfg.StripePublishableKey,
+	)
+	paymentsHandler := payments.NewHandler(paymentsService)
 
 	// --- OAuth providers ---
 	// Token generation and storage are injected as closures to keep oauth
@@ -241,7 +250,13 @@ func main() {
 		r.Get("/api/v1/orders", ordersHandler.List)
 		r.Get("/api/v1/orders/{id}", ordersHandler.GetByID)
 		r.Post("/api/v1/orders/{id}/cancel", ordersHandler.Cancel)
+
+		// --- Payments (owner-checked) ---
+		r.Post("/api/v1/orders/{id}/payment-intent", paymentsHandler.CreateIntent)
 	})
+
+	// --- Stripe webhook (public; signature-verified inside the handler) ---
+	r.Post("/api/v1/webhooks/stripe", paymentsHandler.Webhook)
 
 	// --- Cart merge (strict auth; guest cookie read but not auto-issued) ---
 	r.Group(func(r chi.Router) {
