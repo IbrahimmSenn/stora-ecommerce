@@ -159,6 +159,16 @@ export type OrderSummary = {
   created_at: string
 }
 
+export type StripeConfig = {
+  publishable_key: string
+}
+
+export type CreateIntentResponse = {
+  client_secret: string
+  publishable_key: string
+  payment_intent_id: string
+}
+
 export const api = {
   listProducts: () => request<ProductsResponse>('/api/v1/products'),
   getCart: () => request<Cart>('/api/v1/cart'),
@@ -203,6 +213,11 @@ export const api = {
   getOrder: (id: string) => request<OrderResponse>(`/api/v1/orders/${id}`),
   cancelOrder: (id: string) =>
     request<OrderResponse>(`/api/v1/orders/${id}/cancel`, { method: 'POST' }),
+  getStripeConfig: () => request<StripeConfig>('/api/v1/config/stripe'),
+  createPaymentIntent: (orderId: string) =>
+    request<CreateIntentResponse>(`/api/v1/orders/${orderId}/payment-intent`, {
+      method: 'POST',
+    }),
 }
 
 export function formatPrice(cents: number): string {
