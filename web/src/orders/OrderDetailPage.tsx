@@ -36,6 +36,39 @@ export function OrderDetailPage() {
     }
   }, [id])
 
+  // After Stripe redirects to /confirmation, the webhook may not have landed
+  // yet — poll for ~10s while the order is still pending_payment so the page
+  // flips to "Payment received" without a manual refresh.
+  useEffect(() => {
+    if (!id || !data) return
+    if (!isConfirmation) return
+    if (data.order.status !== 'pending_payment') return
+
+    let cancelled = false
+    let attempts = 0
+    const tick = () => {
+      if (cancelled) return
+      attempts++
+      api
+        .getOrder(id)
+        .then((d) => {
+          if (cancelled) return
+          setData(d)
+          if (d.order.status === 'pending_payment' && attempts < 5) {
+            setTimeout(tick, 2000)
+          }
+        })
+        .catch(() => {
+          // Swallow — the page already shows the previous data; user can retry manually.
+        })
+    }
+    const t = setTimeout(tick, 2000)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [id, data, isConfirmation])
+
   async function handleCancel() {
     if (!id || !data) return
     if (!window.confirm('Cancel this order? Stock will be restored.')) return
@@ -65,19 +98,38 @@ export function OrderDetailPage() {
 
   const { order, items, address } = data
   const cancellable = order.status === 'pending_payment' || order.status === 'paid'
+  const retryable = order.status === 'payment_failed'
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-12">
       {isConfirmation ? (
         <header className="mb-12">
           <p className="text-xs uppercase tracking-widest text-gray-500">
-            Order placed
+            {order.status === 'paid' ? 'Payment received' : 'Order placed'}
           </p>
           <h1 className="text-4xl font-semibold mt-2">Thank you.</h1>
-          <p className="text-gray-600 mt-3 max-w-xl">
-            We've received your order. Payment is collected on the next milestone —
-            for now your order sits in pending payment.
-          </p>
+          {order.status === 'paid' ? (
+            <p className="text-gray-600 mt-3 max-w-xl">
+              Your payment went through. We'll email a receipt shortly.
+            </p>
+          ) : order.status === 'pending_payment' ? (
+            <p className="text-gray-600 mt-3 max-w-xl">
+              Stripe is still confirming your payment. This page will refresh
+              once the webhook lands — usually within a few seconds.
+            </p>
+          ) : order.status === 'payment_failed' ? (
+            <p className="text-gray-600 mt-3 max-w-xl">
+              Payment didn't go through.{' '}
+              <Link to={`/orders/${order.id}/pay`} className="underline">
+                Try again
+              </Link>
+              .
+            </p>
+          ) : (
+            <p className="text-gray-600 mt-3 max-w-xl">
+              We've received your order.
+            </p>
+          )}
         </header>
       ) : (
         <header className="mb-10">
@@ -150,6 +202,21 @@ export function OrderDetailPage() {
           {address.country}
         </address>
       </section>
+
+      {retryable && (
+        <div className="border-t pt-8 mb-8">
+          <Link
+            to={`/orders/${order.id}/pay`}
+            className="inline-block px-6 py-2 bg-gray-900 text-white text-sm uppercase tracking-wider"
+          >
+            Retry payment
+          </Link>
+          <p className="mt-2 text-xs text-gray-500">
+            Your card was declined. You can try again with a different card —
+            stock is held until you cancel.
+          </p>
+        </div>
+      )}
 
       {cancellable && (
         <div className="border-t pt-8">

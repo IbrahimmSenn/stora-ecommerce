@@ -104,7 +104,7 @@ export function CheckoutPage() {
       }
       const resp = await api.checkout(body)
       await refresh()
-      navigate(`/orders/${resp.order.id}/confirmation`, { replace: true })
+      navigate(`/orders/${resp.order.id}/pay`, { replace: true })
     } catch (e) {
       if (e instanceof ApiError) {
         setServerError(e.message)
@@ -315,11 +315,10 @@ export function CheckoutPage() {
             disabled={submitting}
             className="mt-10 w-full sm:w-auto px-8 py-3 bg-gray-900 text-white text-sm uppercase tracking-wider disabled:opacity-50"
           >
-            {submitting ? 'Placing order…' : 'Place order'}
+            {submitting ? 'Placing order…' : 'Continue to payment'}
           </button>
           <p className="mt-3 text-xs text-gray-500">
-            Payment is collected on the next milestone — your order will be created
-            with status <span className="font-medium">pending payment</span>.
+            We'll create your order and take you to a secure Stripe payment page.
           </p>
         </form>
 
