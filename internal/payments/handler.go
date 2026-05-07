@@ -3,6 +3,7 @@ package payments
 import (
 	"errors"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -55,6 +56,9 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	sig := r.Header.Get("Stripe-Signature")
 
 	if err := h.service.HandleWebhook(r.Context(), payload, sig); err != nil {
+		// Log the underlying reason so we can tell secret-mismatch from
+		// timestamp-out-of-tolerance from missing-header without redeploying.
+		log.Printf("stripe webhook rejected: %v (sig_header_present=%v, body_bytes=%d)", err, sig != "", len(payload))
 		if errors.Is(err, ErrSignatureMismatch) {
 			response.Error(w, http.StatusBadRequest, "invalid signature")
 			return
