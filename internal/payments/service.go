@@ -120,7 +120,13 @@ func (s *service) CreateIntent(ctx context.Context, userID, guestID *uuid.UUID, 
 }
 
 func (s *service) HandleWebhook(ctx context.Context, payload []byte, sigHeader string) error {
-	event, err := webhook.ConstructEvent(payload, sigHeader, s.webhookSecret)
+	// IgnoreAPIVersionMismatch lets the local stripe-go SDK accept events
+	// signed by a Stripe account on a newer API version. Safe for us because
+	// we only read pi.ID, pi.LastPaymentError.Code, and pi.LastPaymentError.Msg
+	// — fields that have been stable across every API version that ships them.
+	event, err := webhook.ConstructEventWithOptions(payload, sigHeader, s.webhookSecret, webhook.ConstructEventOptions{
+		IgnoreAPIVersionMismatch: true,
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSignatureMismatch, err)
 	}
