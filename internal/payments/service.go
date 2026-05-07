@@ -154,6 +154,13 @@ func (s *service) onIntentSucceeded(ctx context.Context, raw json.RawMessage) er
 
 	existing, err := s.repo.GetByPaymentIntentID(ctx, pi.ID)
 	if err != nil {
+		if errors.Is(err, ErrPaymentNotFound) {
+			// Unknown intent — likely a `stripe trigger` test event or a
+			// retry of one of our pre-fix attempts. Ack so Stripe stops
+			// retrying; nothing to do.
+			log.Printf("payments: succeeded event for unknown intent %s — ignoring", pi.ID)
+			return nil
+		}
 		return err
 	}
 	// Idempotency: Stripe retries webhooks. If we already processed this
@@ -183,6 +190,10 @@ func (s *service) onIntentFailed(ctx context.Context, raw json.RawMessage) error
 
 	existing, err := s.repo.GetByPaymentIntentID(ctx, pi.ID)
 	if err != nil {
+		if errors.Is(err, ErrPaymentNotFound) {
+			log.Printf("payments: failed event for unknown intent %s — ignoring", pi.ID)
+			return nil
+		}
 		return err
 	}
 	if existing.Status == StatusFailed {
