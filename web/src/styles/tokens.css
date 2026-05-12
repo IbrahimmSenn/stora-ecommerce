@@ -1,0 +1,92 @@
+/* tokens.css — design tokens per .impeccable.md
+ *
+ * Palette: near-monochrome neutrals tinted toward oxblood (hue 25) in light
+ * mode, tinted toward cool deep-ink (hue 250) in dark mode. One accent,
+ * oxblood, used rarely. No pure black / pure white anywhere.
+ *
+ * Tailwind v4 reads the @theme block in index.css to generate utility
+ * classes (bg-surface, text-ink, bg-accent, etc). This file holds the
+ * raw vars and the .dark override.
+ */
+
+:root {
+  /* Surfaces — page background, raised, sunken. Warm bone tinted toward accent. */
+  --color-surface-0: oklch(0.97 0.005 25);
+  --color-surface-1: oklch(0.99 0.003 25);
+  --color-surface-2: oklch(0.93 0.006 25);
+
+  /* Text — graphite ink, secondary, tertiary. */
+  --color-ink: oklch(0.18 0.01 25);
+  --color-ink-soft: oklch(0.42 0.01 25);
+  --color-ink-faint: oklch(0.58 0.006 25);
+
+  /* Borders — subtle separators and explicit edges. */
+  --color-rule: oklch(0.88 0.006 25);
+  --color-rule-strong: oklch(0.78 0.008 25);
+
+  /* Accent — oxblood. Used for primary actions, stock signals, emphasis. */
+  --color-accent: oklch(0.42 0.13 25);
+  --color-accent-soft: oklch(0.48 0.12 25);
+  --color-on-accent: oklch(0.99 0.003 25);
+
+  /* Feedback — desaturated, calm. */
+  --color-positive: oklch(0.52 0.10 150);
+  --color-warning: oklch(0.62 0.13 65);
+  --color-negative: oklch(0.45 0.15 25);
+
+  /* Font stacks. */
+  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Hanken Grotesk Variable", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  /* Spacing scale (4pt). */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-24: 6rem;
+
+  /* Radius. */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* Motion. */
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+  --duration-fast: 180ms;
+  --duration-med: 360ms;
+  --duration-slow: 560ms;
+}
+
+.dark {
+  --color-surface-0: oklch(0.14 0.008 250);
+  --color-surface-1: oklch(0.18 0.008 250);
+  --color-surface-2: oklch(0.21 0.008 250);
+
+  --color-ink: oklch(0.94 0.005 60);
+  --color-ink-soft: oklch(0.72 0.008 60);
+  --color-ink-faint: oklch(0.55 0.008 250);
+
+  --color-rule: oklch(0.27 0.010 250);
+  --color-rule-strong: oklch(0.38 0.012 250);
+
+  --color-accent: oklch(0.65 0.16 25);
+  --color-accent-soft: oklch(0.58 0.14 25);
+  --color-on-accent: oklch(0.14 0.008 250);
+
+  --color-positive: oklch(0.70 0.12 150);
+  --color-warning: oklch(0.74 0.13 65);
+  --color-negative: oklch(0.66 0.16 25);
+}
+
+/* Honor reduced motion globally — components also check via hook. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-med: 0ms;
+    --duration-slow: 0ms;
+  }
+}

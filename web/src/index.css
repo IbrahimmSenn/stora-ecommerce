@@ -1,1 +1,83 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+
+/* Class-based dark mode (default v4 uses prefers-color-scheme — we want the
+ * user's toggle to win). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Map the OKLCH tokens to Tailwind's utility namespace. Names are short and
+   * semantic — referenced as bg-surface, text-ink, bg-accent, border-rule. */
+  --color-surface: var(--color-surface-0);
+  --color-raised: var(--color-surface-1);
+  --color-sunken: var(--color-surface-2);
+  --color-ink: var(--color-ink);
+  --color-ink-soft: var(--color-ink-soft);
+  --color-ink-faint: var(--color-ink-faint);
+  --color-rule: var(--color-rule);
+  --color-rule-strong: var(--color-rule-strong);
+  --color-accent: var(--color-accent);
+  --color-accent-soft: var(--color-accent-soft);
+  --color-on-accent: var(--color-on-accent);
+  --color-positive: var(--color-positive);
+  --color-warning: var(--color-warning);
+  --color-negative: var(--color-negative);
+
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+}
+
+@layer base {
+  html {
+    background: var(--color-surface-0);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--color-surface-0);
+    color: var(--color-ink);
+    min-height: 100vh;
+  }
+
+  /* Tabular figures for any element with .tnum or when prices are marked. */
+  .tnum,
+  [data-tnum] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Sentence-case lock for headings — we set this ourselves but enforce that
+   * uppercase only happens deliberately via .uc-tight (the editorial small-caps
+   * marker style). */
+  .uc-tight {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Focus ring uses the accent — always visible, never removed. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Strip default heavy form rings; we use the global focus-visible above. */
+  input:focus,
+  textarea:focus,
+  select:focus,
+  button:focus {
+    outline: none;
+  }
+
+  /* Selection — accent on bone. */
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+}
