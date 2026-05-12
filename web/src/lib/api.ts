@@ -99,6 +99,48 @@ export type LoginResponse = {
   token_type: string
 }
 
+export type RegisterRequest = {
+  email: string
+  password: string
+  captcha_token?: string
+}
+
+export type TwoFactorSetupResponse = {
+  secret: string
+  /** base64-encoded PNG without the data: prefix. */
+  qr_code: string
+  recovery_codes: string[]
+}
+
+export type AdminProduct = {
+  id: string
+  name: string
+  description?: string | null
+  price: number
+  stock_quantity: number
+  category_id?: string | null
+  brand_id?: string | null
+  weight_g?: number | null
+  dimensions_cm?: number | null
+  category_name?: string | null
+  brand_name?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export type Category = {
+  id: string
+  name: string
+  slug: string
+  parent_id?: string | null
+  children?: Category[]
+}
+
+export type Brand = {
+  id: string
+  name: string
+}
+
 export type ShippingMethod = 'standard' | 'express'
 
 export type CheckoutAddress = {
@@ -186,11 +228,65 @@ export const api = {
     request<Cart>(`/api/v1/cart/items/${productId}`, { method: 'DELETE' }),
   clearCart: () =>
     request<{ message: string }>('/api/v1/cart', { method: 'DELETE' }),
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, totp_code?: string) =>
     request<LoginResponse>('/api/v1/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { email, password, totp_code },
     }),
+  register: (email: string, password: string, captchaToken?: string) =>
+    request<{ message: string }>('/api/v1/auth/register', {
+      method: 'POST',
+      body: { email, password, captcha_token: captchaToken ?? '' },
+    }),
+  forgotPassword: (email: string) =>
+    request<{ message: string }>('/api/v1/auth/forgot-password', {
+      method: 'POST',
+      body: { email },
+    }),
+  resetPassword: (token: string, new_password: string) =>
+    request<{ message: string }>('/api/v1/auth/reset-password', {
+      method: 'POST',
+      body: { token, new_password },
+    }),
+  setup2FA: () =>
+    request<TwoFactorSetupResponse>('/api/v1/auth/2fa/setup', {
+      method: 'POST',
+    }),
+  enable2FA: (code: string) =>
+    request<{ message: string }>('/api/v1/auth/2fa/enable', {
+      method: 'POST',
+      body: { code },
+    }),
+  disable2FA: (code: string) =>
+    request<{ message: string }>('/api/v1/auth/2fa/disable', {
+      method: 'POST',
+      body: { code },
+    }),
+  oauthRedirectUrl: (provider: 'google' | 'facebook') =>
+    `/api/v1/auth/oauth/${provider}`,
+  // Admin — product CRUD + categories + brands.
+  adminListProducts: () => request<ProductsResponse>('/api/v1/products?page_size=100'),
+  adminCreateProduct: (body: Partial<AdminProduct>) =>
+    request<AdminProduct>('/api/v1/admin/products', { method: 'POST', body }),
+  adminUpdateProduct: (id: string, body: Partial<AdminProduct>) =>
+    request<AdminProduct>(`/api/v1/admin/products/${id}`, { method: 'PUT', body }),
+  adminDeleteProduct: (id: string) =>
+    request<void>(`/api/v1/admin/products/${id}`, { method: 'DELETE' }),
+  adminAddProductImage: (productId: string, url: string, isPrimary = false) =>
+    request<{ id: string }>(`/api/v1/admin/products/${productId}/images`, {
+      method: 'POST',
+      body: { url, is_primary: isPrimary },
+    }),
+  adminDeleteProductImage: (productId: string, imageId: string) =>
+    request<void>(`/api/v1/admin/products/${productId}/images/${imageId}`, {
+      method: 'DELETE',
+    }),
+  listCategories: () => request<Category[]>('/api/v1/categories'),
+  adminCreateCategory: (body: { name: string; slug: string; parent_id?: string }) =>
+    request<Category>('/api/v1/admin/categories', { method: 'POST', body }),
+  listBrands: () => request<Brand[]>('/api/v1/brands'),
+  adminCreateBrand: (body: { name: string }) =>
+    request<Brand>('/api/v1/admin/brands', { method: 'POST', body }),
   mergeStatus: () => request<MergeStatus>('/api/v1/cart/merge-status'),
   merge: (strategy: 'guest' | 'user') =>
     request<Cart>('/api/v1/cart/merge', {
