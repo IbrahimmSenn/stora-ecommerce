@@ -39,6 +39,9 @@ type Config struct {
 	StripeSecretKey      string
 	StripeWebhookSecret  string
 	StripePublishableKey string
+
+	// RabbitMQ
+	RabbitMQURL string
 }
 
 func Load() (*Config, error) {
@@ -69,6 +72,8 @@ func Load() (*Config, error) {
 		StripeSecretKey:      os.Getenv("STRIPE_SECRET_KEY"),
 		StripeWebhookSecret:  os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		StripePublishableKey: os.Getenv("STRIPE_PUBLISHABLE_KEY"),
+
+		RabbitMQURL: os.Getenv("RABBITMQ_URL"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -94,6 +99,10 @@ func Load() (*Config, error) {
 	}
 	if cfg.StripePublishableKey == "" {
 		return nil, fmt.Errorf("STRIPE_PUBLISHABLE_KEY is required (pk_test_...)")
+	}
+
+	if cfg.RabbitMQURL == "" {
+		return nil, fmt.Errorf("RABBITMQ_URL is required (e.g. amqp://guest:guest@rabbitmq:5672/)")
 	}
 
 	if cfg.Port == "" {

@@ -15,8 +15,12 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 )
 
-func newTestService(repo *stubRepo, ordersSvc *stubOrders, intents *stubIntent, mail *stubMailer) Service {
-	return NewService(repo, ordersSvc, mail, intents, "whsec_test", "pk_test_publishable")
+func newTestService(repo *stubRepo, ordersSvc *stubOrders, intents *stubIntent, events *stubEvents) Service {
+	return newTestServiceWithRefunds(repo, ordersSvc, intents, events, &stubRefunds{})
+}
+
+func newTestServiceWithRefunds(repo *stubRepo, ordersSvc *stubOrders, intents *stubIntent, events *stubEvents, refunds *stubRefunds) Service {
+	return NewService(repo, ordersSvc, events, intents, refunds, "whsec_test", "pk_test_publishable")
 }
 
 func makeOrderResp(id uuid.UUID, status string, total int64, owner *uuid.UUID) *orders.OrderResponse {
@@ -41,7 +45,7 @@ func TestCreateIntent_RejectsNonPayableStatus(t *testing.T) {
 	owner := uuid.New()
 	orderID := uuid.New()
 	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusShipped, 1500, &owner)}
-	svc := newTestService(newStubRepo(), ordersSvc, &stubIntent{}, &stubMailer{})
+	svc := newTestService(newStubRepo(), ordersSvc, &stubIntent{}, &stubEvents{})
 
 	_, err := svc.CreateIntent(context.Background(), &owner, nil, orderID)
 	assert.ErrorIs(t, err, ErrInvalidOrderStatus)
@@ -51,7 +55,7 @@ func TestCreateIntent_PropagatesOrdersForbidden(t *testing.T) {
 	owner := uuid.New()
 	orderID := uuid.New()
 	ordersSvc := &stubOrders{getErr: orders.ErrForbidden}
-	svc := newTestService(newStubRepo(), ordersSvc, &stubIntent{}, &stubMailer{})
+	svc := newTestService(newStubRepo(), ordersSvc, &stubIntent{}, &stubEvents{})
 
 	_, err := svc.CreateIntent(context.Background(), &owner, nil, orderID)
 	assert.ErrorIs(t, err, ErrForbidden)
@@ -63,7 +67,7 @@ func TestCreateIntent_PersistsRowAndThreadsMetadata(t *testing.T) {
 	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 2500, &owner)}
 	intents := &stubIntent{nextID: "pi_abc", nextSecret: "pi_abc_secret"}
 	repo := newStubRepo()
-	svc := newTestService(repo, ordersSvc, intents, &stubMailer{})
+	svc := newTestService(repo, ordersSvc, intents, &stubEvents{})
 
 	resp, err := svc.CreateIntent(context.Background(), &owner, nil, orderID)
 	require.NoError(t, err)
@@ -85,7 +89,7 @@ func TestCreateIntent_PersistsRowAndThreadsMetadata(t *testing.T) {
 	assert.Equal(t, int64(2500), row.AmountCents)
 }
 
-func TestHandleEvent_SucceededFlipsOrderAndSendsEmail(t *testing.T) {
+func TestHandleEvent_SucceededFlipsOrderAndPublishes(t *testing.T) {
 	orderID := uuid.New()
 	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 2500, nil)}
 	repo := newStubRepo()
@@ -93,8 +97,8 @@ func TestHandleEvent_SucceededFlipsOrderAndSendsEmail(t *testing.T) {
 		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_xyz",
 		Status: StatusPending, AmountCents: 2500, Currency: "usd",
 	})
-	mail := &stubMailer{}
-	svc := newTestService(repo, ordersSvc, &stubIntent{}, mail).(*service)
+	events := &stubEvents{}
+	svc := newTestService(repo, ordersSvc, &stubIntent{}, events).(*service)
 
 	event := stripego.Event{
 		Type: "payment_intent.succeeded",
@@ -104,13 +108,14 @@ func TestHandleEvent_SucceededFlipsOrderAndSendsEmail(t *testing.T) {
 
 	assert.Equal(t, StatusSucceeded, repo.byIntent["pi_xyz"].Status)
 	assert.Equal(t, []string{orders.StatusPaid}, ordersSvc.statusCalls)
-	require.Len(t, mail.sent, 1)
-	assert.Equal(t, "buyer@example.com", mail.sent[0].to)
-	assert.Contains(t, mail.sent[0].subject, "ORD-TEST")
-	assert.Contains(t, mail.sent[0].subject, "received")
+	require.Len(t, events.succeeded, 1)
+	assert.Equal(t, orderID, events.succeeded[0].OrderID)
+	assert.Equal(t, "pi_xyz", events.succeeded[0].PaymentIntentID)
+	assert.Equal(t, int64(2500), events.succeeded[0].AmountCents)
+	assert.Empty(t, events.failed)
 }
 
-func TestHandleEvent_FailedRecordsErrorAndEmails(t *testing.T) {
+func TestHandleEvent_FailedRecordsErrorAndPublishes(t *testing.T) {
 	orderID := uuid.New()
 	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 2500, nil)}
 	repo := newStubRepo()
@@ -118,8 +123,8 @@ func TestHandleEvent_FailedRecordsErrorAndEmails(t *testing.T) {
 		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_zzz",
 		Status: StatusPending, AmountCents: 2500, Currency: "usd",
 	})
-	mail := &stubMailer{}
-	svc := newTestService(repo, ordersSvc, &stubIntent{}, mail).(*service)
+	events := &stubEvents{}
+	svc := newTestService(repo, ordersSvc, &stubIntent{}, events).(*service)
 
 	event := stripego.Event{
 		Type: "payment_intent.payment_failed",
@@ -137,8 +142,10 @@ func TestHandleEvent_FailedRecordsErrorAndEmails(t *testing.T) {
 	require.NotNil(t, row.ErrorMessage)
 	assert.Equal(t, "insufficient_funds", *row.ErrorMessage)
 	assert.Equal(t, []string{orders.StatusPaymentFailed}, ordersSvc.statusCalls)
-	require.Len(t, mail.sent, 1)
-	assert.Contains(t, mail.sent[0].subject, "failed")
+	require.Len(t, events.failed, 1)
+	assert.Equal(t, "card_declined", events.failed[0].FailureCode)
+	assert.Equal(t, "insufficient_funds", events.failed[0].FailureMessage)
+	assert.Empty(t, events.succeeded)
 }
 
 func TestHandleEvent_IdempotentOnDuplicate(t *testing.T) {
@@ -149,8 +156,8 @@ func TestHandleEvent_IdempotentOnDuplicate(t *testing.T) {
 		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_dup",
 		Status: StatusSucceeded, AmountCents: 2500, Currency: "usd",
 	})
-	mail := &stubMailer{}
-	svc := newTestService(repo, ordersSvc, &stubIntent{}, mail).(*service)
+	events := &stubEvents{}
+	svc := newTestService(repo, ordersSvc, &stubIntent{}, events).(*service)
 
 	event := stripego.Event{
 		Type: "payment_intent.succeeded",
@@ -158,21 +165,100 @@ func TestHandleEvent_IdempotentOnDuplicate(t *testing.T) {
 	}
 	require.NoError(t, svc.handleEvent(context.Background(), event))
 
-	// No status flip, no extra email — Stripe retried, we no-op'd.
+	// No status flip, no extra publish — Stripe retried, we no-op'd.
 	assert.Empty(t, ordersSvc.statusCalls)
-	assert.Empty(t, mail.sent)
+	assert.Empty(t, events.succeeded)
+	assert.Empty(t, events.failed)
 }
 
 func TestHandleWebhook_BadSignature(t *testing.T) {
-	svc := newTestService(newStubRepo(), &stubOrders{}, &stubIntent{}, &stubMailer{})
+	svc := newTestService(newStubRepo(), &stubOrders{}, &stubIntent{}, &stubEvents{})
 
 	err := svc.HandleWebhook(context.Background(), []byte(`{}`), "garbage")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrSignatureMismatch)
 }
 
+func TestRefundOrder_HappyPath(t *testing.T) {
+	orderID := uuid.New()
+	paymentID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: paymentID, OrderID: orderID, StripePaymentIntentID: "pi_succ",
+		Status: StatusSucceeded, AmountCents: 2500, Currency: "usd",
+	})
+	refunds := &stubRefunds{nextID: "re_abc"}
+	svc := newTestServiceWithRefunds(repo, &stubOrders{}, &stubIntent{}, &stubEvents{}, refunds)
+
+	require.NoError(t, svc.RefundOrder(context.Background(), orderID))
+
+	require.Len(t, refunds.calls, 1)
+	assert.Equal(t, "pi_succ", refunds.calls[0].intentID)
+	assert.Equal(t, paymentID.String(), refunds.calls[0].idempotencyKey)
+
+	row := repo.byIntent["pi_succ"]
+	assert.Equal(t, StatusRefunded, row.Status)
+	require.NotNil(t, row.StripeRefundID)
+	assert.Equal(t, "re_abc", *row.StripeRefundID)
+}
+
+func TestRefundOrder_IdempotentWhenAlreadyRefunded(t *testing.T) {
+	orderID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_done",
+		Status: StatusRefunded, AmountCents: 2500, Currency: "usd",
+	})
+	refunds := &stubRefunds{}
+	svc := newTestServiceWithRefunds(repo, &stubOrders{}, &stubIntent{}, &stubEvents{}, refunds)
+
+	require.NoError(t, svc.RefundOrder(context.Background(), orderID))
+	assert.Empty(t, refunds.calls, "should not call Stripe when already refunded")
+}
+
+func TestRefundOrder_RejectsUnpaidPayment(t *testing.T) {
+	orderID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_pend",
+		Status: StatusPending, AmountCents: 2500, Currency: "usd",
+	})
+	refunds := &stubRefunds{}
+	svc := newTestServiceWithRefunds(repo, &stubOrders{}, &stubIntent{}, &stubEvents{}, refunds)
+
+	err := svc.RefundOrder(context.Background(), orderID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrCannotRefund)
+	assert.Empty(t, refunds.calls)
+}
+
+func TestRefundOrder_NoPaymentForOrder(t *testing.T) {
+	repo := newStubRepo()
+	svc := newTestService(repo, &stubOrders{}, &stubIntent{}, &stubEvents{})
+
+	err := svc.RefundOrder(context.Background(), uuid.New())
+	assert.ErrorIs(t, err, ErrPaymentNotFound)
+}
+
+func TestRefundOrder_PropagatesStripeError(t *testing.T) {
+	orderID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_x",
+		Status: StatusSucceeded, AmountCents: 2500, Currency: "usd",
+	})
+	refunds := &stubRefunds{err: errors.New("stripe down")}
+	svc := newTestServiceWithRefunds(repo, &stubOrders{}, &stubIntent{}, &stubEvents{}, refunds)
+
+	err := svc.RefundOrder(context.Background(), orderID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stripe down")
+	// DB still shows succeeded — caller retries safely.
+	assert.Equal(t, StatusSucceeded, repo.byIntent["pi_x"].Status)
+}
+
 func TestHandleEvent_UnhandledTypeIsNoop(t *testing.T) {
-	svc := newTestService(newStubRepo(), &stubOrders{}, &stubIntent{}, &stubMailer{}).(*service)
+	svc := newTestService(newStubRepo(), &stubOrders{}, &stubIntent{}, &stubEvents{}).(*service)
 
 	event := stripego.Event{
 		Type: "charge.refunded",
@@ -249,6 +335,41 @@ func (s *stubRepo) LatestForOrder(_ context.Context, orderID uuid.UUID) (*Paymen
 	return nil, ErrPaymentNotFound
 }
 
+func (s *stubRepo) MarkRefunded(_ context.Context, paymentID uuid.UUID, refundID string) error {
+	for _, p := range s.byIntent {
+		if p.ID == paymentID {
+			p.Status = StatusRefunded
+			rid := refundID
+			p.StripeRefundID = &rid
+			return nil
+		}
+	}
+	return ErrPaymentNotFound
+}
+
+type stubRefundCall struct {
+	intentID       string
+	idempotencyKey string
+}
+
+type stubRefunds struct {
+	calls    []stubRefundCall
+	nextID   string
+	err      error
+}
+
+func (s *stubRefunds) Refund(_ context.Context, intentID, idempotencyKey string) (string, error) {
+	s.calls = append(s.calls, stubRefundCall{intentID, idempotencyKey})
+	if s.err != nil {
+		return "", s.err
+	}
+	id := s.nextID
+	if id == "" {
+		id = "re_stub"
+	}
+	return id, nil
+}
+
 type stubOrders struct {
 	order       *orders.OrderResponse
 	getErr      error
@@ -307,17 +428,17 @@ func (s *stubIntent) NewIntent(_ context.Context, amount int64, currency string,
 	return id, secret, nil
 }
 
-type sentEmail struct {
-	to      string
-	subject string
-	body    string
+type stubEvents struct {
+	succeeded []PaymentSucceededEvent
+	failed    []PaymentFailedEvent
 }
 
-type stubMailer struct {
-	sent []sentEmail
+func (s *stubEvents) PublishSucceeded(_ context.Context, evt PaymentSucceededEvent) error {
+	s.succeeded = append(s.succeeded, evt)
+	return nil
 }
 
-func (m *stubMailer) Send(to, subject, body string) error {
-	m.sent = append(m.sent, sentEmail{to, subject, body})
+func (s *stubEvents) PublishFailed(_ context.Context, evt PaymentFailedEvent) error {
+	s.failed = append(s.failed, evt)
 	return nil
 }

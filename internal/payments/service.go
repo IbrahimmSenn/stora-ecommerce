@@ -10,17 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/paymentintent"
+	"github.com/stripe/stripe-go/v76/refund"
 	"github.com/stripe/stripe-go/v76/webhook"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 )
-
-// Mailer is the slice of internal/mailer.Mailer the service uses. Defined
-// here (consumer-side) so tests can stub it without touching the mailer
-// package.
-type Mailer interface {
-	Send(to, subject, body string) error
-}
 
 // IntentClient is the slice of the Stripe SDK we actually call. Tests stub
 // this so they don't need network access or real keys.
@@ -28,10 +22,36 @@ type IntentClient interface {
 	NewIntent(ctx context.Context, amountCents int64, currency string, metadata map[string]string) (id, clientSecret string, err error)
 }
 
+// RefundClient wraps the Stripe SDK's refund call. Same reasoning as
+// IntentClient: stubbable in unit tests, doesn't leak SDK types upward.
+type RefundClient interface {
+	Refund(ctx context.Context, paymentIntentID, idempotencyKey string) (refundID string, err error)
+}
+
 // stripeIntentClient is the production implementation, backed by stripe-go.
 type stripeIntentClient struct{}
 
 func NewStripeClient() IntentClient { return stripeIntentClient{} }
+
+// stripeRefundClient is the production RefundClient.
+type stripeRefundClient struct{}
+
+func NewStripeRefundClient() RefundClient { return stripeRefundClient{} }
+
+func (stripeRefundClient) Refund(ctx context.Context, paymentIntentID, idempotencyKey string) (string, error) {
+	params := &stripe.RefundParams{
+		PaymentIntent: stripe.String(paymentIntentID),
+	}
+	params.Context = ctx
+	if idempotencyKey != "" {
+		params.SetIdempotencyKey(idempotencyKey)
+	}
+	r, err := refund.New(params)
+	if err != nil {
+		return "", fmt.Errorf("stripe refund.New: %w", err)
+	}
+	return r.ID, nil
+}
 
 func (stripeIntentClient) NewIntent(ctx context.Context, amount int64, currency string, metadata map[string]string) (string, string, error) {
 	params := &stripe.PaymentIntentParams{
@@ -55,23 +75,26 @@ func (stripeIntentClient) NewIntent(ctx context.Context, amount int64, currency 
 type Service interface {
 	CreateIntent(ctx context.Context, userID, guestID *uuid.UUID, orderID uuid.UUID) (*CreateIntentResponse, error)
 	HandleWebhook(ctx context.Context, payload []byte, sigHeader string) error
+	RefundOrder(ctx context.Context, orderID uuid.UUID) error
 }
 
 type service struct {
-	repo            Repository
-	orders          orders.Service
-	mail            Mailer
-	stripe          IntentClient
-	webhookSecret   string
-	publishableKey  string
+	repo           Repository
+	orders         orders.Service
+	events         EventPublisher
+	stripe         IntentClient
+	refunds        RefundClient
+	webhookSecret  string
+	publishableKey string
 }
 
-func NewService(repo Repository, ordersSvc orders.Service, mail Mailer, stripe IntentClient, webhookSecret, publishableKey string) Service {
+func NewService(repo Repository, ordersSvc orders.Service, events EventPublisher, stripe IntentClient, refunds RefundClient, webhookSecret, publishableKey string) Service {
 	return &service{
 		repo:           repo,
 		orders:         ordersSvc,
-		mail:           mail,
+		events:         events,
 		stripe:         stripe,
+		refunds:        refunds,
 		webhookSecret:  webhookSecret,
 		publishableKey: publishableKey,
 	}
@@ -176,9 +199,17 @@ func (s *service) onIntentSucceeded(ctx context.Context, raw json.RawMessage) er
 		return err
 	}
 
-	// TODO(rabbitmq): replace this synchronous send with a published event
-	// once the messaging milestone lands.
-	s.sendConfirmationEmail(ctx, existing.OrderID)
+	evt := PaymentSucceededEvent{
+		OrderID:         existing.OrderID,
+		PaymentIntentID: pi.ID,
+		AmountCents:     existing.AmountCents,
+		Currency:        existing.Currency,
+	}
+	if err := s.events.PublishSucceeded(ctx, evt); err != nil {
+		// Don't block Stripe — log and move on. The DB state is correct;
+		// the email is best-effort and will be replayed if we add a redrive.
+		log.Printf("payments: publish succeeded event failed: %v", err)
+	}
 	return nil
 }
 
@@ -213,71 +244,43 @@ func (s *service) onIntentFailed(ctx context.Context, raw json.RawMessage) error
 		return err
 	}
 
-	// TODO(rabbitmq): replace this synchronous send with a published event.
-	s.sendFailureEmail(ctx, existing.OrderID, code, message)
+	evt := PaymentFailedEvent{
+		OrderID:         existing.OrderID,
+		PaymentIntentID: pi.ID,
+		AmountCents:     existing.AmountCents,
+		Currency:        existing.Currency,
+		FailureCode:     code,
+		FailureMessage:  message,
+	}
+	if err := s.events.PublishFailed(ctx, evt); err != nil {
+		log.Printf("payments: publish failed event failed: %v", err)
+	}
 	return nil
 }
 
-func (s *service) sendConfirmationEmail(ctx context.Context, orderID uuid.UUID) {
-	order, err := s.orders.LoadByID(ctx, orderID)
+// RefundOrder issues a Stripe refund for the latest successful payment on
+// the order, then marks the payments row as refunded. Idempotent: if the
+// row is already refunded, returns nil without contacting Stripe.
+//
+// Returns ErrPaymentNotFound if no payment exists, ErrCannotRefund if the
+// payment isn't in a refundable state (e.g. never succeeded).
+func (s *service) RefundOrder(ctx context.Context, orderID uuid.UUID) error {
+	payment, err := s.repo.LatestForOrder(ctx, orderID)
 	if err != nil {
-		log.Printf("payments: load order for confirmation email failed: %v", err)
-		return
+		return err
 	}
-	subject := fmt.Sprintf("Order %s — payment received", order.Order.OrderNumber)
-	body := buildConfirmationBody(order)
-	if err := s.mail.Send(order.Order.Email, subject, body); err != nil {
-		log.Printf("payments: send confirmation email failed: %v", err)
+	if payment.Status == StatusRefunded {
+		return nil
 	}
-}
+	if payment.Status != StatusSucceeded {
+		return ErrCannotRefund
+	}
 
-func (s *service) sendFailureEmail(ctx context.Context, orderID uuid.UUID, code, message string) {
-	order, err := s.orders.LoadByID(ctx, orderID)
+	// Use the payment row id as the idempotency key so duplicate calls into
+	// Stripe don't create duplicate refunds even if our DB write is lost.
+	refundID, err := s.refunds.Refund(ctx, payment.StripePaymentIntentID, payment.ID.String())
 	if err != nil {
-		log.Printf("payments: load order for failure email failed: %v", err)
-		return
+		return fmt.Errorf("stripe refund for order %s: %w", orderID, err)
 	}
-	subject := fmt.Sprintf("Order %s — payment failed", order.Order.OrderNumber)
-	body := buildFailureBody(order, code, message)
-	if err := s.mail.Send(order.Order.Email, subject, body); err != nil {
-		log.Printf("payments: send failure email failed: %v", err)
-	}
-}
-
-func buildConfirmationBody(o *orders.OrderResponse) string {
-	itemsHTML := ""
-	for _, it := range o.Items {
-		itemsHTML += fmt.Sprintf(
-			"<tr><td>%s × %d</td><td style='text-align:right'>$%.2f</td></tr>",
-			it.ProductName, it.Quantity, float64(it.UnitPriceCents*int64(it.Quantity))/100,
-		)
-	}
-	return fmt.Sprintf(`<p>Thanks for your order.</p>
-<p><strong>Order %s</strong></p>
-<table style="border-collapse:collapse">%s
-<tr><td>Shipping</td><td style="text-align:right">$%.2f</td></tr>
-<tr><td><strong>Total</strong></td><td style="text-align:right"><strong>$%.2f</strong></td></tr>
-</table>
-<p>Shipping to %s, %s %s.</p>`,
-		o.Order.OrderNumber, itemsHTML,
-		float64(o.Order.ShippingCents)/100,
-		float64(o.Order.TotalCents)/100,
-		o.Address.City, o.Address.Region, o.Address.Country,
-	)
-}
-
-func buildFailureBody(o *orders.OrderResponse, code, message string) string {
-	reason := message
-	if reason == "" {
-		reason = "Your card was declined."
-	}
-	codeLine := ""
-	if code != "" {
-		codeLine = fmt.Sprintf("<p style='color:#666'>Reference: %s</p>", code)
-	}
-	return fmt.Sprintf(`<p>We couldn't process payment for order <strong>%s</strong>.</p>
-<p>%s</p>%s
-<p>You can retry from your order detail page.</p>`,
-		o.Order.OrderNumber, reason, codeLine,
-	)
+	return s.repo.MarkRefunded(ctx, payment.ID, refundID)
 }

@@ -8,4 +8,5 @@ var (
 	ErrForbidden          = errors.New("forbidden")
 	ErrSignatureMismatch  = errors.New("stripe webhook signature mismatch")
 	ErrOrderNotFound      = errors.New("order not found")
+	ErrCannotRefund       = errors.New("payment is not in a refundable state")
 )

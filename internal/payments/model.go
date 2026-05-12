@@ -11,19 +11,22 @@ const (
 	StatusSucceeded = "succeeded"
 	StatusFailed    = "failed"
 	StatusCancelled = "cancelled"
+	StatusRefunded  = "refunded"
 )
 
 type Payment struct {
-	ID                    uuid.UUID `json:"id"`
-	OrderID               uuid.UUID `json:"order_id"`
-	StripePaymentIntentID string    `json:"stripe_payment_intent_id"`
-	Status                string    `json:"status"`
-	AmountCents           int64     `json:"amount_cents"`
-	Currency              string    `json:"currency"`
-	ErrorCode             *string   `json:"error_code,omitempty"`
-	ErrorMessage          *string   `json:"error_message,omitempty"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	ID                    uuid.UUID  `json:"id"`
+	OrderID               uuid.UUID  `json:"order_id"`
+	StripePaymentIntentID string     `json:"stripe_payment_intent_id"`
+	Status                string     `json:"status"`
+	AmountCents           int64      `json:"amount_cents"`
+	Currency              string     `json:"currency"`
+	ErrorCode             *string    `json:"error_code,omitempty"`
+	ErrorMessage          *string    `json:"error_message,omitempty"`
+	StripeRefundID        *string    `json:"stripe_refund_id,omitempty"`
+	RefundedAt            *time.Time `json:"refunded_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
 }
 
 // CreateIntentResponse is the body returned to the frontend after it asks for

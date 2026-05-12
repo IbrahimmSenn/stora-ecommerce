@@ -17,10 +17,24 @@ import (
 const testHexKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func newTestService(t *testing.T, repo *stubRepo, carts cart.Service) Service {
+	return newTestServiceWithRefunder(t, repo, carts, nil)
+}
+
+func newTestServiceWithRefunder(t *testing.T, repo *stubRepo, carts cart.Service, refunder Refunder) Service {
 	t.Helper()
 	enc, err := crypto.NewEncryptor(testHexKey)
 	require.NoError(t, err)
-	return NewService(repo, carts, enc)
+	return NewService(repo, carts, enc, refunder)
+}
+
+type stubRefunder struct {
+	calls []uuid.UUID
+	err   error
+}
+
+func (s *stubRefunder) RefundOrder(_ context.Context, orderID uuid.UUID) error {
+	s.calls = append(s.calls, orderID)
+	return s.err
 }
 
 func validRequest() CheckoutRequest {
@@ -204,6 +218,61 @@ func TestCancel_RestoresStockAndStatus(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusCancelled, resp.Order.Status)
 	assert.Equal(t, 7, repo.products[productID].Stock, "3 units should be restocked")
+}
+
+func TestCancel_PaidOrderRefundsAndMarksRefunded(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 4}
+
+	owner := uuid.New()
+	id := repo.seedOrder(orderRow{UserID: &owner, Status: StatusPaid})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 2}}
+
+	refunder := &stubRefunder{}
+	svc := newTestServiceWithRefunder(t, repo, &stubCart{}, refunder)
+
+	resp, err := svc.Cancel(context.Background(), &owner, nil, id)
+	require.NoError(t, err)
+	assert.Equal(t, StatusRefunded, resp.Order.Status, "paid order ends up refunded, not cancelled")
+	assert.Equal(t, 6, repo.products[productID].Stock, "stock restocked from 4 → 6")
+	require.Len(t, refunder.calls, 1)
+	assert.Equal(t, id, refunder.calls[0])
+}
+
+func TestCancel_PaidOrderWithoutRefunderErrors(t *testing.T) {
+	repo := newStubRepo()
+	owner := uuid.New()
+	id := repo.seedOrder(orderRow{UserID: &owner, Status: StatusPaid})
+
+	svc := newTestService(t, repo, &stubCart{}) // no refunder
+
+	_, err := svc.Cancel(context.Background(), &owner, nil, id)
+	assert.ErrorIs(t, err, ErrRefundUnavailable)
+	// Status unchanged; never touched the DB beyond the initial load.
+	assert.Equal(t, StatusPaid, repo.orders[id].Status)
+}
+
+func TestCancel_RefundFailureLeavesOrderPaid(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 4}
+
+	owner := uuid.New()
+	id := repo.seedOrder(orderRow{UserID: &owner, Status: StatusPaid})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 2}}
+
+	refunder := &stubRefunder{err: errors.New("stripe boom")}
+	svc := newTestServiceWithRefunder(t, repo, &stubCart{}, refunder)
+
+	_, err := svc.Cancel(context.Background(), &owner, nil, id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stripe boom")
+	// Refund failed → no restock, status stays paid.
+	assert.Equal(t, StatusPaid, repo.orders[id].Status)
+	assert.Equal(t, 4, repo.products[productID].Stock)
 }
 
 // --- stubs ------------------------------------------------------------------

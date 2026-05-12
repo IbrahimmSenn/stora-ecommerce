@@ -32,7 +32,13 @@ func (m *Mailer) Send(to, subject, body string) error {
 		m.from, to, subject, body)
 
 	addr := m.host + ":" + m.port
-	auth := smtp.PlainAuth("", m.user, m.pass, m.host)
+	// Mailhog and other open dev relays don't advertise AUTH; passing a
+	// non-nil PlainAuth in that case fails with "server doesn't support
+	// AUTH". Only authenticate when we actually have a user configured.
+	var auth smtp.Auth
+	if m.user != "" {
+		auth = smtp.PlainAuth("", m.user, m.pass, m.host)
+	}
 
 	if err := smtp.SendMail(addr, auth, m.from, []string{to}, []byte(msg)); err != nil {
 		return fmt.Errorf("send email: %w", err)

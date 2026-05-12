@@ -149,6 +149,8 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 		response.Error(w, http.StatusUnauthorized, "checkout requires a logged-in user or a guest session — please enable cookies")
 	case errors.Is(err, ErrInvalidShipping):
 		response.Error(w, http.StatusUnprocessableEntity, "invalid shipping method (use 'standard' or 'express')")
+	case errors.Is(err, ErrRefundUnavailable):
+		response.Error(w, http.StatusServiceUnavailable, "refunds are temporarily unavailable — please try again shortly")
 	default:
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 	}

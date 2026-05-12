@@ -71,7 +71,11 @@ export function OrderDetailPage() {
 
   async function handleCancel() {
     if (!id || !data) return
-    if (!window.confirm('Cancel this order? Stock will be restored.')) return
+    const wasPaid = data.order.status === 'paid'
+    const prompt = wasPaid
+      ? 'Cancel this order? Your payment will be refunded and stock will be restored.'
+      : 'Cancel this order? Stock will be restored.'
+    if (!window.confirm(prompt)) return
     setCancelling(true)
     setError(null)
     try {
@@ -229,8 +233,9 @@ export function OrderDetailPage() {
             {cancelling ? 'Cancelling…' : `Cancel this order (${formatStatus(order.status)})`}
           </button>
           <p className="mt-2 text-xs text-gray-500">
-            Cancellation restores stock. Once payment is processed and the order
-            ships, this option goes away.
+            {order.status === 'paid'
+              ? 'Cancelling refunds your payment via Stripe and restores stock. Once the order ships, this option goes away.'
+              : 'Cancellation restores stock. Once payment is processed and the order ships, this option goes away.'}
           </p>
         </div>
       )}

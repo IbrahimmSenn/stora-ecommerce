@@ -34,19 +34,37 @@ type Service interface {
 	MarkPaymentFailed(ctx context.Context, id uuid.UUID) error
 }
 
+// Refunder is the slice of the payments service the orders service uses
+// when cancelling a paid order. Defined here (consumer-side) and injected
+// via a closure adapter from main.go so payments → orders → payments
+// doesn't form an import cycle.
+type Refunder interface {
+	RefundOrder(ctx context.Context, orderID uuid.UUID) error
+}
+
+// RefunderFunc adapts a plain function to the Refunder interface. main.go
+// uses it to capture the (later-built) payments service by closure.
+type RefunderFunc func(ctx context.Context, orderID uuid.UUID) error
+
+func (f RefunderFunc) RefundOrder(ctx context.Context, orderID uuid.UUID) error {
+	return f(ctx, orderID)
+}
+
 type service struct {
 	repo      Repository
 	carts     cart.Service
 	encryptor *crypto.Encryptor
 	validate  *validator.Validate
+	refunder  Refunder
 }
 
-func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor) Service {
+func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, refunder Refunder) Service {
 	return &service{
 		repo:      repo,
 		carts:     carts,
 		encryptor: encryptor,
 		validate:  validator.New(),
+		refunder:  refunder,
 	}
 }
 
@@ -221,9 +239,27 @@ func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.U
 		return nil, ErrNotCancellable
 	}
 
+	// If the order was already paid, refund the charge before touching the
+	// DB. Stripe call is idempotent (keyed by payment row id) so a retry
+	// after a partial failure is safe.
+	wasPaid := row.Status == StatusPaid
+	if wasPaid {
+		if s.refunder == nil {
+			return nil, ErrRefundUnavailable
+		}
+		if err := s.refunder.RefundOrder(ctx, id); err != nil {
+			return nil, fmt.Errorf("refund order %s: %w", id, err)
+		}
+	}
+
 	items, err := s.repo.ItemsForRestock(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+
+	terminalStatus := StatusCancelled
+	if wasPaid {
+		terminalStatus = StatusRefunded
 	}
 
 	err = s.repo.WithTx(ctx, func(tx TxRepo) error {
@@ -235,7 +271,7 @@ func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.U
 				return err
 			}
 		}
-		return tx.UpdateStatus(ctx, id, StatusCancelled)
+		return tx.UpdateStatus(ctx, id, terminalStatus)
 	})
 	if err != nil {
 		return nil, err

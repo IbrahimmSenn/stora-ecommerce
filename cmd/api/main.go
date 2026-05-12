@@ -25,7 +25,9 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/config"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/messaging"
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/notifications"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/oauth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/payments"
@@ -67,6 +69,29 @@ func main() {
 
 	stripe.Key = cfg.StripeSecretKey
 
+	// --- RabbitMQ connection + topology ---
+	// Dial with bounded retry to absorb the brief window between rabbitmq's
+	// healthcheck going green and the broker being fully ready to serve.
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	amqpConn, err := messaging.Connect(dialCtx, cfg.RabbitMQURL)
+	dialCancel()
+	if err != nil {
+		log.Fatalf("connect to rabbitmq: %v", err)
+	}
+	defer amqpConn.Close()
+
+	amqpPublisher, err := messaging.NewPublisher(amqpConn)
+	if err != nil {
+		log.Fatalf("open publisher channel: %v", err)
+	}
+	defer amqpPublisher.Close()
+
+	if err := messaging.DeclarePaymentsTopology(amqpPublisher.Channel()); err != nil {
+		log.Fatalf("declare topology: %v", err)
+	}
+
+	paymentsEventPublisher := payments.NewAmqpPublisher(amqpPublisher)
+
 	userRepo := user.NewUserRepository(db)
 	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier)
 	userHandler := user.NewHandler(userService)
@@ -95,17 +120,43 @@ func main() {
 	cartService := cart.NewService(cartRepo, productRepo)
 	cartHandler := cart.NewHandler(cartService)
 
+	// Break the orders ↔ payments import cycle: orders calls payments only
+	// for refunds, so we declare the variable here and let a closure adapter
+	// resolve it once payments is built below.
+	var paymentsService payments.Service
+	refunder := orders.RefunderFunc(func(ctx context.Context, orderID uuid.UUID) error {
+		return paymentsService.RefundOrder(ctx, orderID)
+	})
+
 	ordersRepo := orders.NewRepository(db)
-	ordersService := orders.NewService(ordersRepo, cartService, encryptor)
+	ordersService := orders.NewService(ordersRepo, cartService, encryptor, refunder)
 	ordersHandler := orders.NewHandler(ordersService)
 
 	paymentsRepo := payments.NewRepository(db)
-	paymentsService := payments.NewService(
-		paymentsRepo, ordersService, mail,
+	paymentsService = payments.NewService(
+		paymentsRepo, ordersService, paymentsEventPublisher,
 		payments.NewStripeClient(),
+		payments.NewStripeRefundClient(),
 		cfg.StripeWebhookSecret, cfg.StripePublishableKey,
 	)
 	paymentsHandler := payments.NewHandler(paymentsService)
+
+	// --- Notifications consumer (subscribes to payment events) ---
+	emailConsumer := &notifications.EmailConsumer{Orders: ordersService, Mail: mail}
+	amqpConsumer, err := messaging.NewConsumer(amqpConn, messaging.QueuePaymentEmails)
+	if err != nil {
+		log.Fatalf("open consumer channel: %v", err)
+	}
+	defer amqpConsumer.Close()
+
+	consumerCtx, stopConsumer := context.WithCancel(context.Background())
+	consumerDone := make(chan struct{})
+	go func() {
+		defer close(consumerDone)
+		if err := amqpConsumer.Run(consumerCtx, emailConsumer.Handle); err != nil && consumerCtx.Err() == nil {
+			log.Printf("consumer exited unexpectedly: %v", err)
+		}
+	}()
 
 	// --- OAuth providers ---
 	// Token generation and storage are injected as closures to keep oauth
@@ -312,6 +363,15 @@ func main() {
 
 	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer timeoutCancel()
+
+	// Stop the consumer first so an in-flight email send can finish before
+	// we tear down its connection. Bounded by the same 10s shutdown budget.
+	stopConsumer()
+	select {
+	case <-consumerDone:
+	case <-timeoutCtx.Done():
+		log.Println("consumer drain timed out")
+	}
 
 	if err := srv.Shutdown(timeoutCtx); err != nil {
 		log.Fatalf("server shutdown error: %v", err)

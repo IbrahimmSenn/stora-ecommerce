@@ -1,9 +1,20 @@
 # I Love Shopping
 
-A full-scale B2C e-commerce platform built with Go, PostgreSQL, and Docker. Includes a browser-based test panel for reviewers to interact with every feature without needing external tools.
+A full-scale B2C e-commerce platform built with Go, PostgreSQL, RabbitMQ, and Docker. Covers the full commerce loop: catalog browsing, guest and persistent carts, single-page checkout, Stripe sandbox payments with secure Elements, webhook-driven order state, asynchronous email notifications over a message queue, order history with filtering, and the cancellation + refund workflow. Sensitive PII (order contact details and shipping addresses) is encrypted at rest with AES-256-GCM. Ships with a React storefront and a built-in test panel so reviewers can exercise every flow in the browser.
 
 ## Features
 
+### Commerce
+- **Shopping Cart**: Guest carts (cookie-bound session) and persistent carts (DB-backed for logged-in users), with item add/update/remove, real-time totals, out-of-stock guards, and a merge prompt on login.
+- **Checkout**: Single-page flow capturing contact, shipping address (format-validated), shipping method (flat-rate `standard` / `express`), and order summary; logged-in users get their email prefilled.
+- **Stripe Payments**: Stripe Elements integration (never touches raw card data), lazy `PaymentIntent` creation per attempt, idempotent webhook for `payment_intent.succeeded` and `payment_intent.payment_failed`.
+- **Inventory locking**: `SELECT ... FOR UPDATE` on every cart line at checkout prevents overselling under concurrent payments.
+- **Encryption at rest**: AES-256-GCM (key from `ENCRYPTION_KEY`, 64-hex-char) on order email, phone, and every shipping-address field. Payment intent IDs are Stripe pointers, not PII.
+- **Order Management**: History list filtered by status + date range, detail view with status, item-level pricing, and shipping breakdown. Cancellation allowed for unprocessed orders (`pending_payment` and `paid`). **Refund workflow**: cancelling a paid order triggers an idempotent Stripe refund, restocks inventory, and flips status to `refunded`.
+- **Async Email Notifications**: Payment webhook publishes events to a RabbitMQ topic exchange (`payments`); a `notifications` consumer subscribes to `payments.emails`, loads the order, and sends confirmation or failure email via SMTP. Three in-process retries with exponential backoff, then DLX → `payments.emails.dlq` for inspection.
+- **Mailhog**: Bundled SMTP sink with a web UI so reviewers can see every outgoing email without configuring real SMTP.
+
+### Identity & Catalog (Project 1)
 - **Authentication**: Email/password registration and login with JWT (access + refresh tokens)
 - **OAuth**: Google and Facebook social login
 - **CAPTCHA**: Google reCAPTCHA v3 on registration
@@ -14,23 +25,28 @@ A full-scale B2C e-commerce platform built with Go, PostgreSQL, and Docker. Incl
 - **Categories**: Hierarchical tree structure with nested browsing
 - **Search**: PostgreSQL full-text search (tsvector/GIN index) with weighted ranking
 - **Role-Based Access**: Customer and admin roles with middleware enforcement
-- **Test Frontend**: Built-in browser UI for testing all features (register, login, OAuth, 2FA, products, admin)
-- **Docker**: Fully containerized — Docker is the only host prerequisite
+
+### Infrastructure
+- **Docker**: Fully containerized — Docker and the Stripe CLI are the only host prerequisites
 - **Seed Data**: Pre-loaded admin/customer accounts, categories, brands, products, and reviews
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Language | Go 1.24+ |
+| Language | Go 1.25 |
 | Router | Chi v5 |
 | Database | PostgreSQL 16 |
+| Message Queue | RabbitMQ 3.13 (amqp091-go) |
+| Payments | Stripe sandbox (`stripe-go/v76` + `@stripe/react-stripe-js`) |
+| Email (dev) | Mailhog (SMTP + web UI) |
 | Auth | JWT (HS256), bcrypt, TOTP (pquerna/otp) |
 | OAuth | golang.org/x/oauth2 (Google, Facebook) |
 | Migrations | golang-migrate |
 | Validation | go-playground/validator |
+| Encryption | AES-256-GCM (`crypto/aes`, `crypto/cipher`) |
 | Containers | Docker, docker-compose |
-| Frontend | Vanilla HTML/CSS/JS (single-page test panel) |
+| Frontend | React 19 + TypeScript + Vite + Tailwind v4 |
 
 ## Entity Relationship Diagram
 
@@ -135,11 +151,84 @@ erDiagram
         TIMESTAMPTZ created_at
     }
 
+    carts {
+        UUID id PK
+        UUID user_id FK
+        UUID guest_session_id
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    cart_items {
+        UUID id PK
+        UUID cart_id FK
+        UUID product_id FK
+        INT quantity
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    orders {
+        UUID id PK
+        VARCHAR order_number UK
+        UUID user_id FK
+        UUID guest_session_id
+        VARCHAR status
+        BYTEA email_encrypted
+        BYTEA phone_encrypted
+        INT subtotal_cents
+        INT shipping_cents
+        INT total_cents
+        VARCHAR shipping_method
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    order_items {
+        UUID id PK
+        UUID order_id FK
+        UUID product_id FK
+        VARCHAR product_name
+        INT unit_price_cents
+        INT quantity
+        TIMESTAMPTZ created_at
+    }
+
+    shipping_addresses {
+        UUID id PK
+        UUID order_id FK,UK
+        BYTEA recipient_name_encrypted
+        BYTEA line1_encrypted
+        BYTEA line2_encrypted
+        BYTEA city_encrypted
+        BYTEA region_encrypted
+        BYTEA postal_code_encrypted
+        BYTEA country_encrypted
+        TIMESTAMPTZ created_at
+    }
+
+    payments {
+        UUID id PK
+        UUID order_id FK
+        TEXT stripe_payment_intent_id UK
+        VARCHAR status
+        INT amount_cents
+        VARCHAR currency
+        TEXT error_code
+        TEXT error_message
+        TEXT stripe_refund_id
+        TIMESTAMPTZ refunded_at
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
     users ||--o{ refresh_tokens : "has"
     users ||--o{ oauth_accounts : "links"
     users ||--o{ password_reset_tokens : "requests"
     users ||--o| two_factor_auth : "configures"
     users ||--o{ reviews : "writes"
+    users ||--o| carts : "owns (logged-in)"
+    users ||--o{ orders : "places"
 
     categories ||--o{ categories : "parent of"
     categories ||--o{ products : "contains"
@@ -147,6 +236,13 @@ erDiagram
 
     products ||--o{ product_images : "has"
     products ||--o{ reviews : "receives"
+    products ||--o{ cart_items : "queued in"
+    products ||--o{ order_items : "purchased as"
+
+    carts ||--o{ cart_items : "contains"
+    orders ||--o{ order_items : "contains"
+    orders ||--|| shipping_addresses : "ships to"
+    orders ||--o{ payments : "charged via"
 ```
 
 ### Relationships Summary
@@ -158,12 +254,21 @@ erDiagram
 | users → password_reset_tokens | 1:N | A user can request multiple resets |
 | users → two_factor_auth | 1:0..1 | A user can optionally enable 2FA |
 | users → reviews | 1:N | A user can write many reviews |
+| users → carts | 1:0..1 | At most one persistent cart per user (partial unique index) |
+| users → orders | 1:N | Order history is preserved per user |
 | categories → categories | 1:N (self) | Categories form a tree (parent_id) |
 | categories → products | 1:N | A category contains many products |
 | brands → products | 1:N | A brand has many products |
 | products → product_images | 1:N | A product has many images |
 | products → reviews | 1:N | A product receives many reviews |
 | reviews (user_id, product_id) | UNIQUE | One review per user per product |
+| carts → cart_items | 1:N | Each line is a unique product within the cart |
+| cart_items (cart_id, product_id) | UNIQUE | Adding the same product twice updates quantity instead |
+| orders → order_items | 1:N | Items snapshot price + name at order time so price changes don't rewrite history |
+| orders → shipping_addresses | 1:1 | Each order has exactly one shipping address (encrypted) |
+| orders → payments | 1:N | Each retry adds a fresh `payments` row; the latest drives order status |
+
+**Encryption note:** `*_encrypted` columns are AES-256-GCM ciphertext (nonce + ciphertext + auth tag concatenated). Plaintext never lands in Postgres; decryption happens in the Go service layer using `ENCRYPTION_KEY`.
 
 ## Setup
 
@@ -198,6 +303,18 @@ erDiagram
    curl http://localhost:8080/health
    # {"status":"ok"}
    ```
+
+### Bundled dev services
+
+`make up` brings up four supporting containers alongside the API:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| PostgreSQL | `localhost:5433` | Application database |
+| RabbitMQ | `localhost:5672` (AMQP), [localhost:15672](http://localhost:15672) (management UI, `guest`/`guest`) | Payment event bus; inspect the `payments.emails` queue and the `payments.emails.dlq` dead-letter queue |
+| Mailhog | [localhost:8025](http://localhost:8025) (web UI), `localhost:1025` (SMTP) | Captures all outgoing email so you can read confirmations, failures, and password resets without configuring real SMTP |
+
+For Stripe webhooks, run `stripe listen --forward-to http://localhost:8080/api/v1/webhooks/stripe` in a separate terminal and copy the printed `whsec_...` into `STRIPE_WEBHOOK_SECRET`.
 
 ### Makefile Commands
 
@@ -241,39 +358,33 @@ All credentials are loaded from the `.env` file (not committed to the repository
 | `RECAPTCHA_SITE_KEY` | No | — | reCAPTCHA v3 site key ([google.com/recaptcha/admin](https://www.google.com/recaptcha/admin)) |
 | `RECAPTCHA_SECRET_KEY` | No | — | reCAPTCHA v3 secret key |
 | `SKIP_CAPTCHA` | No | `false` | Set `true` to skip CAPTCHA in development |
-| `SMTP_HOST` | No | — | SMTP server host (empty = skip emails) |
-| `SMTP_PORT` | No | `587` | SMTP port |
-| `SMTP_USER` | No | — | SMTP username |
+| `SMTP_HOST` | No | — | SMTP server host (empty = skip emails). `docker-compose` overrides to `mailhog`. |
+| `SMTP_PORT` | No | `587` | SMTP port. `docker-compose` overrides to `1025` for Mailhog. |
+| `SMTP_USER` | No | — | SMTP username (leave empty for Mailhog — it accepts unauthenticated SMTP) |
 | `SMTP_PASS` | No | — | SMTP password |
 | `SMTP_FROM` | No | (SMTP_USER) | Sender email address |
+| `STRIPE_SECRET_KEY` | Yes | — | Stripe sandbox secret (`sk_test_...`) |
+| `STRIPE_WEBHOOK_SECRET` | Yes | — | Webhook signing secret (`whsec_...`) printed by `stripe listen` |
+| `STRIPE_PUBLISHABLE_KEY` | Yes | — | Stripe publishable key (`pk_test_...`) used by the frontend |
+| `ENCRYPTION_KEY` | Yes | — | 64-hex-char (32-byte) AES-256-GCM key for encrypting order PII at rest. Generate with `openssl rand -hex 32`. |
+| `RABBITMQ_URL` | Yes | — | AMQP URL (e.g. `amqp://guest:guest@localhost:5672/`). `docker-compose` overrides to the `rabbitmq` service hostname. |
 
-## Test Frontend
+## Frontend
 
-A built-in single-page test panel is served at `http://localhost:8080` when the application is running. It allows reviewers to test every feature through the browser without needing curl or Postman.
+The React storefront is mounted at `http://localhost:8080`. Header links cover the public catalog, cart, order history, and account; an `Admin` link appears when logged in as `admin@shop.com`. A separate legacy test panel for identity flows (register, OAuth, 2FA, token rotation, password reset) is reachable from the header as **Test Panel** for reviewers who want raw access to those endpoints.
 
-### Tabs
+### Commerce walkthrough
 
-| Tab | What you can test |
-|-----|-------------------|
-| **Register** | Email/password registration with client-side validation; reCAPTCHA v3 auto-loads if `RECAPTCHA_SITE_KEY` is configured |
-| **Login** | Login with email/password, optional 2FA TOTP code field, logout (token revocation) |
-| **OAuth** | Google and Facebook login redirect buttons (requires OAuth env vars) |
-| **Tokens** | View access token (stored in memory only), refresh token rotation, replay detection tester |
-| **Password Reset** | Request reset email (step 1), reset password with token (step 2) |
-| **2FA** | Setup (displays QR code + recovery codes), enable with TOTP code, disable |
-| **Products** | Full-text search with faceted filters (category, brand, price range, rating), sorting, pagination, product detail with images, category tree, brand list |
-| **Admin** | Create/update/delete products, add product images, create categories and brands (requires admin login) |
-
-### Testing Walkthrough
-
-1. **Browse Products**: Go to the Products tab and click Search — all 10 seeded products appear with images, prices, and ratings. Use the filters and sorting options to test faceted search.
-2. **Register**: Go to Register tab, create a new account. If reCAPTCHA is configured, the token is sent automatically. Client-side validation checks email format and password length before submission.
-3. **Login**: Go to Login tab. Login with `admin@shop.com` / `admin123` (admin) or `customer@shop.com` / `customer123` (customer). The header shows the logged-in user and role.
-4. **Token Rotation**: Go to Tokens tab. Click "Refresh Tokens" — new access and refresh tokens are issued. The old refresh token is displayed. Paste it in the "Test Old Refresh Token" field and click "Try Old Token" — it will be rejected (replay detection). If the same old token is replayed, all sessions for that user are revoked.
-5. **2FA**: Login, go to 2FA tab. Click "Setup 2FA" — a QR code and 8 recovery codes appear. Scan the QR with an authenticator app (Google Authenticator, Authy, etc.), enter the 6-digit code to enable. Logout and login again — now a TOTP code is required. Recovery codes also work for login and disabling 2FA.
-6. **Admin Panel**: Login as admin, go to Admin tab. Create categories, brands, and products. Verify they appear in the Products tab. Update and delete products to test full CRUD.
-7. **OAuth**: Click "Login with Google" on the OAuth tab. After authenticating with Google, you are redirected back and automatically logged in with tokens.
-8. **Password Reset**: The password reset flow sends an email via SMTP with a reset token link. This will be demonstrated during the review call with SMTP credentials configured.
+1. **Browse** `/products` — search, faceted filters (category, brand, price, rating), sort, pagination, product detail with reviews.
+2. **Build a cart** — Add items as a guest (a `guest_session` cookie is issued by the server; the cart persists across page reloads). Update quantity or remove items inline. The cart totals recompute live and the header badge reflects line count.
+3. **Out-of-stock guard** — Use the Admin panel to set a product's `stock_quantity` to 0, then try to add it; the API returns a specific error message and the UI surfaces it.
+4. **Log in mid-shopping** — Log in with a guest cart present. The app prompts to merge the guest items into your persistent cart. Decline to keep both isolated.
+5. **Checkout** — `/checkout` is single-page: contact (email prefills if logged in), shipping address (RFC-style format validation), shipping method (`standard` $5 / `express` $15), order summary with itemised totals. Submit creates the order in `pending_payment` and reserves stock.
+6. **Pay** — You're redirected to `/orders/{id}/pay` which mounts Stripe Elements. Use `4242 4242 4242 4242` for success, `4000 0000 0000 0002` for a generic decline, `4000 0000 0000 9995` for insufficient funds, `4000 0000 0000 0069` for expired card. Card number, expiry, and CVV are validated client-side by Stripe before submit. On success the page polls until the webhook flips the order to `paid`.
+7. **Email confirmation** — Open the Mailhog UI at [http://localhost:8025](http://localhost:8025) — a "payment received" email is in the inbox. Failures also land here.
+8. **Order history** — `/orders` lists past orders filterable by status and date range. Click into one for the detail view with the full status, items, shipping, and totals.
+9. **Cancel + refund** — Cancel a `pending_payment` order: stock restocks, status flips to `cancelled`. Cancel a `paid` order: a Stripe refund is issued (idempotency-keyed), stock is restocked, and status flips to `refunded`. The cancel-confirm dialog adapts its copy to mention the refund.
+10. **Watch the queue** — Open the RabbitMQ management UI at [http://localhost:15672](http://localhost:15672) (`guest`/`guest`). The `payments.emails` queue increments `messages_acknowledged` on every payment event. Stop Mailhog mid-payment and the message ends up in `payments.emails.dlq` after three retries.
 
 Access tokens are stored **in JavaScript memory only** (not localStorage or cookies) — refreshing the page clears authentication, demonstrating proper in-memory token storage.
 
@@ -343,6 +454,50 @@ Access tokens are stored **in JavaScript memory only** (not localStorage or cook
 | POST | `/api/v1/admin/categories` | Create category |
 | POST | `/api/v1/admin/brands` | Create brand |
 
+### Shopping Cart
+
+All cart endpoints accept either a bearer token (logged-in user) or a `guest_session` cookie (issued automatically on first cart interaction). Switching between the two is supported via the merge flow at the bottom of this table.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/cart` | Get the current cart with line items, per-line stock, and totals |
+| POST | `/api/v1/cart/items` | Add a product (`{product_id, quantity}`); returns 409 if stock is insufficient |
+| PUT | `/api/v1/cart/items/{productId}` | Set the quantity for a line; quantity `0` removes the line |
+| DELETE | `/api/v1/cart/items/{productId}` | Remove a single line |
+| DELETE | `/api/v1/cart` | Empty the cart |
+| GET | `/api/v1/cart/merge-status` | Logged-in only. Reports whether a guest cart exists for the cookie and what would happen on merge |
+| POST | `/api/v1/cart/merge` | Logged-in only. Body `{strategy: "merge"\|"keep_user"\|"keep_guest"}` consolidates the guest cart into the user cart |
+
+### Checkout & Orders
+
+Same auth surface as cart (token OR guest cookie). The checkout endpoint creates an order in `pending_payment` and decrements stock atomically.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/checkout` | Place an order from the current cart. Body includes contact, shipping address, and shipping method (`standard` or `express`). Returns the created order. |
+| GET | `/api/v1/orders` | List orders owned by the caller (user or guest). Query: `status`, `from` (RFC3339), `to` (RFC3339) |
+| GET | `/api/v1/orders/{id}` | Order detail with items, decrypted shipping address, and current status |
+| POST | `/api/v1/orders/{id}/cancel` | Cancel an unprocessed order. Paid orders trigger an idempotent Stripe refund and end in `refunded`; unpaid orders end in `cancelled`. Both restock inventory. |
+
+**Order statuses:** `pending_payment` → `paid` → `processing` → `shipped` → `delivered`, plus terminal `payment_failed` (retryable), `cancelled`, `refunded`.
+
+### Payments
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/v1/orders/{id}/payment-intent` | Owner-checked | Lazily creates a Stripe `PaymentIntent` for the order and persists a fresh `payments` row in status `pending`. Returns `client_secret` + `publishable_key` for Stripe Elements. Safe to call again after a `payment_failed`. |
+| POST | `/api/v1/webhooks/stripe` | Signature-verified | Stripe webhook endpoint. Handles `payment_intent.succeeded` and `payment_intent.payment_failed`, updates the payments row, flips the order, and publishes a JSON event to RabbitMQ. Idempotent — Stripe retries are no-ops. |
+| GET | `/api/v1/config/stripe` | — | Returns the public Stripe publishable key for the frontend |
+
+### Messaging Topology
+
+The Stripe webhook publishes events on the `payments` topic exchange. The `notifications.email` consumer subscribes to `payments.emails` (bound to `payment.*`) and sends the email. On failure the message is retried in-process (200ms / 1s / 5s backoff), then NACK'd to the `payments.dlx` fanout exchange and held in `payments.emails.dlq` for inspection.
+
+| Routing key | Body shape |
+|---|---|
+| `payment.succeeded` | `{order_id, payment_intent_id, amount_cents, currency}` |
+| `payment.failed` | `{order_id, payment_intent_id, amount_cents, currency, failure_code, failure_message}` |
+
 ## Testing
 
 ### Automated Tests
@@ -352,69 +507,66 @@ Run the full test suite:
 make test
 ```
 
-The test suite includes **11 test files** across 5 packages:
+**Commerce unit tests:**
+- Cart service: add/update/remove, totals, out-of-stock guard, guest ↔ user merge strategies
+- Orders service: empty-cart rejection, stock-changed conflict, encrypted PII round-trip on checkout, ownership checks on GetByID, cancel restocks + flips status, **cancel of a paid order calls the refunder, flips to refunded, restocks**, refund failure leaves order paid
+- Payments service: rejects non-payable status, persists row + threads metadata on intent creation, webhook flips order + publishes succeeded event, failed-card path records error and publishes failure event, idempotent on duplicate Stripe retries, bad-signature rejected, **RefundOrder is idempotent and rejects unpaid payments**
+- Notifications consumer: succeeded routes to confirmation body, failed includes reason + code, malformed JSON propagates terminal error, unknown routing key errors, mailer/load errors propagate so the consumer can retry
 
-**Unit Tests:**
-- JWT token generation and validation (access + refresh tokens, expiry, claims)
-- Auth service logic (login flow, refresh rotation, 2FA verification, password reset)
-- User registration validation (email format, password length, duplicate detection)
-- Category tree builder (hierarchical nesting from flat list)
-- Product service (CRUD operations, search parameter handling)
+**Identity / catalog tests (carried over from Project 1):**
+- JWT generation/validation, auth service flows (login, refresh, 2FA, password reset)
+- User registration validation, category tree builder, product service
+- API integration: login/refresh/logout, product CRUD, middleware enforcement
+- Security: SQL injection, XSS, malformed JSON, oversized bodies, JWT tampering, user-enumeration prevention, invalid UUID, negative-value injection
 
-**API Integration Tests:**
-- Login, refresh, logout endpoint request/response validation
-- Product CRUD endpoints (create, update, delete, search, image management)
-- Middleware enforcement (auth required, admin role required)
+### Manual testing
 
-**Security Tests:**
-- SQL injection attempts across auth and product endpoints
-- XSS payload injection in user inputs
-- Malformed JSON and oversized request bodies
-- JWT token tampering (modified payload, invalid signature, expired tokens)
-- User enumeration prevention (forgot-password returns same response for existing/non-existing emails)
-- Invalid UUID injection
-- Negative value injection for price, stock, weight fields
+The React storefront at `http://localhost:8080` covers every commerce flow end-to-end. The [Commerce walkthrough](#commerce-walkthrough) above lists the click-path; the [Bundled dev services](#bundled-dev-services) section tells you where to inspect emails (Mailhog) and queue state (RabbitMQ management UI).
 
-### Manual Testing via Frontend
+### Verifying encryption at rest
 
-The browser test panel at `http://localhost:8080` covers all features interactively. See the [Testing Walkthrough](#testing-walkthrough) section above.
+After placing an order, open a psql shell and inspect the raw bytes:
 
-### Password Reset Testing
+```bash
+docker exec -it $(docker ps -qf name=db) psql -U admin -d mystore -c \
+  "SELECT order_number, email_encrypted, encode(email_encrypted, 'hex') AS hex FROM orders ORDER BY created_at DESC LIMIT 1;"
+```
 
-Password reset requires SMTP configuration to send emails. This will be demonstrated during the review call with live SMTP credentials. The implementation:
-1. `POST /api/v1/auth/forgot-password` generates a secure random token (32 bytes, base32-encoded), stores it with a 1-hour expiry, and sends an HTML email with the reset link
-2. `POST /api/v1/auth/reset-password` validates the token, hashes the new password, updates the user, marks the token as used, and revokes all existing sessions
-3. The endpoint returns the same response regardless of whether the email exists (prevents user enumeration)
+`email_encrypted` is `bytea` ciphertext (nonce || ciphertext || GCM tag) — the hex column is what's actually on disk; plaintext never appears.
+
+### Concurrent payment / no-overselling
+
+With one unit of a product in stock, open two browser sessions, add the same product to each cart, and check out. The second checkout fails with `409 stock or price changed while you were checking out` because `LockProductForUpdate` (`SELECT ... FOR UPDATE`) serialises the stock decrement.
 
 ## Project Structure
 
 ```
 .
-├── cmd/api/main.go              # Application entrypoint and dependency wiring
+├── cmd/api/main.go              # Application entrypoint, dependency wiring, graceful shutdown
 ├── internal/
 │   ├── auth/                    # Authentication (login, refresh, 2FA, password reset)
-│   │   ├── handler.go           # HTTP handlers
-│   │   ├── service.go           # Business logic
-│   │   ├── repository.go        # Database operations
-│   │   ├── token.go             # JWT generation/validation
-│   │   ├── model.go             # Request/response types
-│   │   ├── errors.go            # Domain errors
-│   │   └── *_test.go            # Unit, integration, and security tests
-│   ├── brand/                   # Brand management (handler/service/repository)
+│   ├── brand/                   # Brand management
 │   ├── captcha/                 # reCAPTCHA v3 verification
+│   ├── cart/                    # Shopping cart (guest + persistent, merge)
 │   ├── category/                # Category tree management
 │   ├── config/                  # Environment configuration loader
+│   ├── crypto/                  # AES-256-GCM encryptor for order PII
 │   ├── ctxkey/                  # Shared context keys (avoids import cycles)
-│   ├── mailer/                  # SMTP email sender
-│   ├── middleware/              # Auth and admin role middleware
+│   ├── mailer/                  # SMTP email sender (Mailhog-compatible)
+│   ├── messaging/               # RabbitMQ connection, publisher, consumer, topology
+│   ├── middleware/              # Auth, admin role, optional auth, guest session
+│   ├── notifications/           # Consumer that turns payment events into emails
 │   ├── oauth/                   # OAuth providers (Google, Facebook)
+│   ├── orders/                  # Checkout, order history, cancellation + refund
+│   ├── payments/                # Stripe intents, webhook, refund client, event publisher
 │   ├── product/                 # Product catalog with faceted search
 │   ├── response/                # JSON response helpers
 │   └── user/                    # User registration
-├── migrations/                  # PostgreSQL migration files (001-014) + seed.sql
-├── static/                      # Frontend test panel (index.html)
-├── Dockerfile                   # Multi-stage build (golang:alpine → alpine:3.20)
-├── docker-compose.yml           # Full stack (db + migrate + seed + api)
+├── migrations/                  # PostgreSQL migration files (001-021) + seed.sql
+├── web/                         # React 19 + TypeScript + Vite storefront
+├── static/                      # Legacy test panel (identity flows)
+├── Dockerfile                   # Multi-stage build (node + golang → alpine:3.20)
+├── docker-compose.yml           # Full stack (db + migrate + seed + rabbitmq + mailhog + api)
 ├── Makefile                     # Dev commands (up, down, reset, test, etc.)
 └── .env.example                 # Environment variable template
 ```
@@ -425,19 +577,24 @@ The project follows a clean layered architecture:
 
 ```
 HTTP Request → Handler (decode/validate) → Service (business logic) → Repository (database) → PostgreSQL
+                                                                  ↘ Event Publisher → RabbitMQ → Notifications Consumer → Mailer → SMTP
 ```
 
-Each layer communicates through Go interfaces, enabling testability with mock implementations. Import cycles are avoided using function injection and a shared `ctxkey` package.
+Each layer communicates through Go interfaces, enabling testability with mock implementations. Import cycles (`orders ↔ payments` for the refund flow) are avoided using function-pointer adapters (`RefunderFunc`) and a shared `ctxkey` package.
+
+The Stripe webhook handler updates the database synchronously (so the order is in `paid` before the webhook returns 200) and publishes the email side-effect to RabbitMQ. The consumer then loads the order, renders the email, and sends it via SMTP — with bounded in-process retry and a dead-letter queue for permanent failures.
 
 ### Docker Services
 
 | Service | Image | Purpose |
 |---------|-------|---------|
-| `db` | postgres:16-alpine | PostgreSQL database with persistent volume |
-| `migrate` | migrate/migrate | Runs all 14 migration files on startup |
-| `seed` | postgres:16-alpine | Seeds the database with test accounts, products, and reviews |
-| `api` | Custom (multi-stage) | Go API server serving both the REST API and the test frontend |
+| `db` | postgres:16-alpine | PostgreSQL database with persistent volume + healthcheck |
+| `migrate` | migrate/migrate | Runs all 21 migration files on startup; exits cleanly |
+| `seed` | postgres:16-alpine | Seeds the database with test accounts, products, and reviews; exits cleanly |
+| `rabbitmq` | rabbitmq:3.13-management-alpine | AMQP broker for payment events. Management UI on `15672`. `rabbitmq-diagnostics ping` healthcheck. |
+| `mailhog` | mailhog/mailhog:v1.0.1 | Dev SMTP sink. SMTP on `1025`, web UI on `8025`. |
+| `api` | Custom (multi-stage: node → golang → alpine) | Go API + built React storefront. Depends on `db`, `seed`, `rabbitmq` (healthy), `mailhog` (started) |
 
-All services are orchestrated with health checks and dependency ordering. Credentials are loaded from the `.env` file via `env_file` directive — no secrets are hardcoded in the compose file.
+All services are orchestrated with health checks and dependency ordering. Credentials are loaded from the `.env` file via `env_file` directive — no secrets are hardcoded in the compose file. The api container overrides `DATABASE_URL`, `RABBITMQ_URL`, `SMTP_HOST`, and `SMTP_PORT` to use the docker hostnames so a fresh `.env` (copied from `.env.example`, with its host-mode localhost defaults) works unchanged.
 
 `make up` is the only command needed to run the entire stack.
