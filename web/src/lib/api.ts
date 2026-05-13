@@ -81,6 +81,11 @@ export type ProductsResponse = {
   page_size: number
 }
 
+export type ProductSuggestion = {
+  id: string
+  name: string
+}
+
 export type CartItem = {
   id: string
   product_id: string
@@ -235,7 +240,15 @@ export type CreateIntentResponse = {
 }
 
 export const api = {
-  listProducts: () => request<ProductsResponse>('/api/v1/products'),
+  listProducts: (params?: { categoryId?: string; q?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.categoryId) qs.set('category_id', params.categoryId)
+    if (params?.q) qs.set('q', params.q)
+    const s = qs.toString()
+    return request<ProductsResponse>(`/api/v1/products${s ? `?${s}` : ''}`)
+  },
+  suggestProducts: (q: string) =>
+    request<ProductSuggestion[]>(`/api/v1/products/suggest?q=${encodeURIComponent(q)}`),
   getCart: () => request<Cart>('/api/v1/cart'),
   addItem: (productId: string, quantity: number) =>
     request<Cart>('/api/v1/cart/items', {
@@ -306,6 +319,8 @@ export const api = {
       method: 'DELETE',
     }),
   listCategories: () => request<Category[]>('/api/v1/categories'),
+  getCategoryBySlug: (slug: string) =>
+    request<Category>(`/api/v1/categories/${encodeURIComponent(slug)}`),
   adminCreateCategory: (body: { name: string; slug: string; parent_id?: string }) =>
     request<Category>('/api/v1/admin/categories', { method: 'POST', body }),
   listBrands: () => request<Brand[]>('/api/v1/brands'),

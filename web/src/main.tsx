@@ -10,6 +10,8 @@ import App from './App.tsx'
 import { AuthProvider } from './auth/AuthContext'
 import { CartProvider } from './cart/CartContext'
 import { CartPanelProvider } from './cart/CartPanelProvider'
+import { SidePanelProvider } from './components/SidePanelProvider'
+import { ToastProvider } from './components/ToastProvider'
 import { ThemeProvider } from './lib/theme'
 
 createRoot(document.getElementById('root')!).render(
@@ -19,7 +21,11 @@ createRoot(document.getElementById('root')!).render(
         <AuthProvider>
           <CartProvider>
             <CartPanelProvider>
-              <App />
+              <SidePanelProvider>
+                <ToastProvider>
+                  <App />
+                </ToastProvider>
+              </SidePanelProvider>
             </CartPanelProvider>
           </CartProvider>
         </AuthProvider>

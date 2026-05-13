@@ -26,6 +26,7 @@ function App() {
       <Nav />
       <Routes>
         <Route path="/" element={<ProductsPage />} />
+        <Route path="/shop/:slug" element={<ProductsPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/orders" element={<OrderHistoryPage />} />
