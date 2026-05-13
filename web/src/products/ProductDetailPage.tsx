@@ -274,7 +274,7 @@ export function ProductDetailPage() {
                   onClick={() => setQuantity((q) => Math.max(1, q - 1))}
                   disabled={quantity <= 1 || !inStock}
                   aria-label="Decrease quantity"
-                  className="h-10 w-10 inline-flex items-center justify-center text-ink hover:text-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="h-11 w-11 inline-flex items-center justify-center text-ink hover:text-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Minus size={14} strokeWidth={1.5} aria-hidden />
                 </button>
@@ -289,7 +289,7 @@ export function ProductDetailPage() {
                   onClick={() => setQuantity((q) => Math.min(maxQty, q + 1))}
                   disabled={quantity >= maxQty || !inStock}
                   aria-label="Increase quantity"
-                  className="h-10 w-10 inline-flex items-center justify-center text-ink hover:text-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="h-11 w-11 inline-flex items-center justify-center text-ink hover:text-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Plus size={14} strokeWidth={1.5} aria-hidden />
                 </button>

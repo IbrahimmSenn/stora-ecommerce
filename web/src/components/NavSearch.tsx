@@ -18,7 +18,17 @@ import { Search } from './icons'
 
 const DEBOUNCE_MS = 200
 
-export function NavSearch() {
+type NavSearchProps = {
+  /** Stretch the input to fill its container instead of animating between
+   *  the nav-bar collapsed/focused widths. Used inside the side panel where
+   *  the surface is too narrow for the desktop expand-to-20rem behaviour. */
+  fullWidth?: boolean
+  /** Called after a successful navigation (suggestion select or query
+   *  commit). The side panel uses this to close itself. */
+  onCommit?: () => void
+}
+
+export function NavSearch({ fullWidth = false, onCommit }: NavSearchProps = {}) {
   const navigate = useNavigate()
   const id = useId()
   const wrapperRef = useRef<HTMLDivElement | null>(null)
@@ -86,12 +96,14 @@ export function NavSearch() {
     navigate(`/?q=${encodeURIComponent(q)}`)
     setFocused(false)
     inputRef.current?.blur()
+    onCommit?.()
   }
 
   function commitSuggestion(s: ProductSuggestion) {
     setFocused(false)
     inputRef.current?.blur()
     navigate(`/product/${s.id}`)
+    onCommit?.()
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -128,15 +140,17 @@ export function NavSearch() {
   const listboxId = `${id}-listbox`
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div ref={wrapperRef} className={`relative ${fullWidth ? 'w-full' : ''}`}>
       <div
-        className="flex items-center gap-2 border-b transition-all"
+        className="flex items-center gap-2 border-b"
         style={{
-          width: focused || query ? '20rem' : '12rem',
+          width: fullWidth ? '100%' : focused || query ? '20rem' : '12rem',
           borderColor: focused
             ? 'var(--color-rule-strong)'
             : 'var(--color-rule)',
-          transition: 'width var(--duration-med) var(--ease-out-quart), border-color 180ms var(--ease-out-quart)',
+          transition: fullWidth
+            ? 'border-color 180ms var(--ease-out-quart)'
+            : 'width var(--duration-med) var(--ease-out-quart), border-color 180ms var(--ease-out-quart)',
         }}
       >
         <Search

@@ -40,7 +40,7 @@ export function NavCart() {
       to="/cart"
       aria-label={label}
       className={({ isActive }) =>
-        `relative inline-flex h-9 w-9 items-center justify-center transition-colors ${
+        `relative inline-flex h-10 w-10 md:h-9 md:w-9 items-center justify-center transition-colors ${
           isActive ? 'text-ink' : 'text-ink-soft hover:text-ink'
         }`
       }

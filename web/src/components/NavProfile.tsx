@@ -69,7 +69,7 @@ export function NavProfile() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={isAuthed ? `Account, ${email}` : 'Account'}
-        className={`inline-flex h-9 w-9 items-center justify-center transition-colors ${
+        className={`inline-flex h-10 w-10 md:h-9 md:w-9 items-center justify-center transition-colors ${
           open ? 'text-ink' : 'text-ink-soft hover:text-ink'
         }`}
       >

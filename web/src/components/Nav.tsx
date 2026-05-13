@@ -57,7 +57,7 @@ export function Nav() {
             aria-haspopup="dialog"
             aria-expanded={sidePanelOpen}
             aria-label="Open menu"
-            className={`inline-flex h-9 w-9 items-center justify-center transition-colors cursor-pointer ${
+            className={`inline-flex h-10 w-10 md:h-9 md:w-9 items-center justify-center transition-colors cursor-pointer ${
               sidePanelOpen ? 'text-ink' : 'text-ink-soft hover:text-ink'
             }`}
           >

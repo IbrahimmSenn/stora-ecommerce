@@ -20,6 +20,7 @@ import { api } from '../lib/api'
 import type { Category } from '../lib/api'
 import { useReducedMotion } from '../lib/motion'
 import { useSidePanel } from './useSidePanel'
+import { NavSearch } from './NavSearch'
 import { ThemeToggle } from './ThemeToggle'
 import { X } from './icons'
 
@@ -33,6 +34,7 @@ export function SidePanel() {
   const navigate = useNavigate()
   const reduced = useReducedMotion()
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const location = useLocation()
   const [categories, setCategories] = useState<Category[]>([])
 
@@ -73,14 +75,13 @@ export function SidePanel() {
     }
   }, [isOpen, close])
 
-  // Focus the close button on open so screen-reader users land somewhere useful.
+  // Focus the close button on open. Avoid landing on the search input —
+  // that auto-pops the on-screen keyboard on touch, which is intrusive when
+  // the user opened the panel to browse categories rather than to search.
   useEffect(() => {
     if (!isOpen) return
     const t = window.setTimeout(() => {
-      const node = panelRef.current
-      if (!node) return
-      const focusables = node.querySelectorAll<HTMLElement>(FOCUSABLE)
-      if (focusables[0]) focusables[0].focus()
+      closeButtonRef.current?.focus()
     }, 50)
     return () => window.clearTimeout(t)
   }, [isOpen])
@@ -155,6 +156,7 @@ export function SidePanel() {
             </h2>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={close}
             aria-label="Close menu"
@@ -165,6 +167,10 @@ export function SidePanel() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-10">
+          <Section number="00" label="Search">
+            <NavSearch fullWidth onCommit={close} />
+          </Section>
+
           <Section number="01" label="Categories">
             {categories.length === 0 ? (
               <p className="text-sm text-ink-faint">Loading.</p>
