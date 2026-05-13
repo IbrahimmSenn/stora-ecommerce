@@ -25,7 +25,7 @@ export function AccountPage() {
           <span className="tnum">01</span> · Security
         </div>
         <div className="space-y-2">
-          <h2 className="font-display text-xl text-ink" style={{ fontVariationSettings: '"wght" 500' }}>
+          <h2 className="font-display text-xl text-ink font-bold">
             Two-factor authentication
           </h2>
           <p className="text-sm text-ink-soft max-w-[55ch]">
@@ -55,7 +55,7 @@ export function AccountPage() {
           <span className="tnum">02</span> · Orders
         </div>
         <div className="space-y-2">
-          <h2 className="font-display text-xl text-ink" style={{ fontVariationSettings: '"wght" 500' }}>
+          <h2 className="font-display text-xl text-ink font-bold">
             Order history
           </h2>
           <p className="text-sm text-ink-soft">
@@ -75,7 +75,7 @@ export function AccountPage() {
           <span className="tnum">03</span> · Developer
         </div>
         <div className="space-y-2">
-          <h2 className="font-display text-xl text-ink" style={{ fontVariationSettings: '"wght" 500' }}>
+          <h2 className="font-display text-xl text-ink font-bold">
             Token rotation tester
           </h2>
           <p className="text-sm text-ink-soft max-w-[55ch]">

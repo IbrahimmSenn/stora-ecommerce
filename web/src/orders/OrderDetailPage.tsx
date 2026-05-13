@@ -197,8 +197,7 @@ export function OrderDetailPage() {
           <div className="flex justify-between pt-4 mt-2 border-t border-rule items-baseline">
             <dt className="uc-tight text-[0.7rem] text-ink-faint">Total</dt>
             <dd
-              className="font-display tnum text-ink text-[clamp(1.25rem,2.5vw,1.75rem)] leading-none"
-              style={{ fontVariationSettings: '"wght" 520, "opsz" 28' }}
+              className="font-display tnum text-ink text-[clamp(1.25rem,2.5vw,1.75rem)] leading-none font-bold"
             >
               {formatPrice(order.total_cents)}
             </dd>

@@ -43,8 +43,7 @@ export function Masthead({
           </div>
         )}
         <h1
-          className="font-display text-[clamp(2.25rem,6vw,4rem)] leading-[0.95] tracking-[-0.02em] text-ink"
-          style={{ fontVariationSettings: '"wght" 540, "opsz" 32' }}
+          className="font-display text-[clamp(2.25rem,6vw,4rem)] leading-[0.95] tracking-[-0.02em] text-ink font-bold"
         >
           {title}
         </h1>

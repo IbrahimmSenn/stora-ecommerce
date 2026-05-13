@@ -164,8 +164,7 @@ function PanelContent({
         <div style={enter(0)}>
           <p className="uc-tight text-[0.7rem] text-ink-faint mb-2">Cart</p>
           <h2
-            className="font-display text-xl text-ink leading-none"
-            style={{ fontVariationSettings: '"wght" 520, "opsz" 24' }}
+            className="font-display text-xl text-ink leading-none font-bold"
           >
             Added.
           </h2>
@@ -227,8 +226,7 @@ function PanelContent({
             {itemCount === 1 ? 'item' : 'items'}
           </dt>
           <dd
-            className="font-display tnum text-ink text-[clamp(1.25rem,2.5vw,1.75rem)] leading-none"
-            style={{ fontVariationSettings: '"wght" 520, "opsz" 28' }}
+            className="font-display tnum text-ink text-[clamp(1.25rem,2.5vw,1.75rem)] leading-none font-bold"
           >
             {formatPrice(subtotal)}
           </dd>

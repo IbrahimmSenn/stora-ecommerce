@@ -143,8 +143,7 @@ export function ProductsPage() {
             <div className="flex items-end justify-between gap-6">
               <div className="min-w-0">
                 <h2
-                  className="font-display text-[clamp(1.5rem,3vw,2.25rem)] leading-tight text-ink"
-                  style={{ fontVariationSettings: '"wght" 520, "opsz" 28' }}
+                  className="font-display text-[clamp(1.5rem,3vw,2.25rem)] leading-tight text-ink font-bold"
                 >
                   {featured.name}
                 </h2>

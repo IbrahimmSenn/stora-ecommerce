@@ -45,10 +45,9 @@ export function Nav() {
       <div className="max-w-6xl mx-auto px-6 lg:px-10 py-5 flex items-baseline gap-10">
         <Link
           to="/"
-          className="font-display text-[1.05rem] tracking-tight"
-          style={{ fontVariationSettings: '"wght" 600, "opsz" 24' }}
+          className="font-display text-[0.95rem] uppercase tracking-[0.32em] font-bold"
         >
-          i-love-shopping
+          STORA
         </Link>
 
         <div className="flex items-baseline gap-6">

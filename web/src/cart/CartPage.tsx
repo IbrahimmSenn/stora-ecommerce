@@ -170,8 +170,7 @@ export function CartPage() {
               Subtotal
             </p>
             <p
-              className="font-display tnum text-ink text-[clamp(2rem,4vw,2.75rem)] leading-none"
-              style={{ fontVariationSettings: '"wght" 520, "opsz" 28' }}
+              className="font-display tnum text-ink text-[clamp(2rem,4vw,2.75rem)] leading-none font-bold"
             >
               {formatPrice(cart.total)}
             </p>
