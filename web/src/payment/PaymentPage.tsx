@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { StripeElementsOptions } from '@stripe/stripe-js'
 import {
   Elements,
@@ -167,8 +167,13 @@ export function PaymentPage() {
 function PayForm({ orderId }: { orderId: string }) {
   const stripe = useStripe()
   const elements = useElements()
+  const location = useLocation()
+  const carried =
+    typeof (location.state as { error?: unknown } | null)?.error === 'string'
+      ? ((location.state as { error: string }).error)
+      : null
   const [submitting, setSubmitting] = useState(false)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(carried)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

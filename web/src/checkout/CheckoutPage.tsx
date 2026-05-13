@@ -149,7 +149,7 @@ export function CheckoutPage() {
 }
 
 function CheckoutInner() {
-  const { cart, refresh } = useCart()
+  const { cart } = useCart()
   const { email: authedEmail, isAuthed } = useAuth()
   const navigate = useNavigate()
   const stripe = useStripe()
@@ -239,14 +239,11 @@ function CheckoutInner() {
         },
       }
       const orderResp = await api.checkout(body)
-      await refresh()
 
       // 3. Create the PaymentIntent for the new order.
       const intent = await api.createPaymentIntent(orderResp.order.id)
 
-      // 4. Confirm with Stripe. On success it redirects to return_url; on
-      //    failure we land back here and either show inline or route to
-      //    /pay for retry, depending on the failure type.
+      // 4. Confirm with Stripe. On success it redirects to return_url.
       const result = await stripe.confirmPayment({
         elements,
         clientSecret: intent.client_secret,
@@ -256,19 +253,13 @@ function CheckoutInner() {
       })
 
       if (result.error) {
-        // card_error and validation_error are user-fixable here — show the
-        // specific message and let them retry without leaving the page.
-        // Anything else (rate_limit_error, api_error, idempotency_error) is
-        // a non-card failure; send them to /pay where the retry surface
-        // can rebuild the intent against the existing order.
-        if (
-          result.error.type === 'card_error' ||
-          result.error.type === 'validation_error'
-        ) {
-          setServerError(mapStripeError(result.error))
-          return
-        }
-        navigate(`/orders/${orderResp.order.id}/pay`, { replace: true })
+        // Order already exists and the cart is cleared, so retry must
+        // happen on /pay against the existing order. Carry the decline
+        // reason through router state so the user sees why on arrival.
+        navigate(`/orders/${orderResp.order.id}/pay`, {
+          replace: true,
+          state: { error: mapStripeError(result.error) },
+        })
       }
     } catch (e) {
       setServerError(mapPaymentError(e))
