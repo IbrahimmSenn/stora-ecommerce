@@ -7,6 +7,7 @@ import './index.css'
 import App from './App.tsx'
 import { AuthProvider } from './auth/AuthContext'
 import { CartProvider } from './cart/CartContext'
+import { CartPanelProvider } from './cart/CartPanelProvider'
 import { ThemeProvider } from './lib/theme'
 
 createRoot(document.getElementById('root')!).render(
@@ -15,7 +16,9 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <AuthProvider>
           <CartProvider>
-            <App />
+            <CartPanelProvider>
+              <App />
+            </CartPanelProvider>
           </CartProvider>
         </AuthProvider>
       </BrowserRouter>

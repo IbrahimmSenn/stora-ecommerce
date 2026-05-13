@@ -1,103 +1,207 @@
+import { Link } from 'react-router-dom'
 import { useCart } from './useCart'
 import { formatPrice } from '../lib/api'
-import { Link } from 'react-router-dom'
+import { Page } from '../components/Page'
+import { Masthead } from '../components/Masthead'
+import { Button } from '../components/Button'
+
+function QtyButton({
+  onClick,
+  disabled,
+  label,
+  children,
+}: {
+  onClick: () => void
+  disabled: boolean
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="w-7 h-7 border border-rule-strong text-ink hover:border-ink hover:text-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+      style={{ borderRadius: 0 }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Thumb({
+  url,
+  name,
+  size = 'h-16 w-16',
+}: {
+  url?: string | null
+  name: string
+  size?: string
+}) {
+  return (
+    <div className={`${size} bg-sunken shrink-0 overflow-hidden`} aria-hidden>
+      {url ? (
+        <img
+          src={url}
+          alt=""
+          loading="lazy"
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center px-1">
+          <span className="text-[0.55rem] text-ink-faint uc-tight text-center leading-tight line-clamp-2">
+            {name}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function CartPage() {
   const { cart, loading, error, updateItem, removeItem, clear } = useCart()
 
-  if (loading) return <p className="p-8">Loading cart…</p>
+  if (loading) {
+    return (
+      <Page width="max-w-4xl">
+        <Masthead number="02" eyebrow="Bag" title="Cart." />
+        <p className="text-sm text-ink-soft">Loading.</p>
+      </Page>
+    )
+  }
 
-  if (error) return <p className="p-8 text-red-600">{error}</p>
+  if (error) {
+    return (
+      <Page width="max-w-4xl">
+        <Masthead number="02" eyebrow="Bag" title="Cart." />
+        <p className="text-sm text-accent">{error}</p>
+      </Page>
+    )
+  }
 
   if (!cart || cart.items.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto p-8 text-center">
-        <h1 className="text-2xl font-semibold mb-2">Your cart is empty</h1>
-        <p className="text-gray-600 mb-4">Nothing here yet.</p>
-        <Link to="/" className="underline">
-          Browse products
+      <Page width="max-w-4xl">
+        <Masthead
+          number="02"
+          eyebrow="Bag"
+          title="Empty."
+          caption="Nothing here yet. Browse the shop and add a few things."
+        />
+        <Link
+          to="/"
+          className="text-sm text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors"
+        >
+          Back to the shop.
         </Link>
-      </div>
+      </Page>
     )
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-8">
-      <h1 className="text-2xl font-semibold mb-6">Your cart</h1>
+    <Page width="max-w-4xl">
+      <Masthead
+        number="02"
+        eyebrow="Bag"
+        title="Cart."
+        caption={
+          <>
+            <span className="tnum">{cart.items.length}</span>{' '}
+            {cart.items.length === 1 ? 'line' : 'lines'} held. Adjust quantities,
+            remove items, or proceed to checkout.
+          </>
+        }
+      />
 
-      <ul className="divide-y border rounded">
-        {cart.items.map((it) => (
-          <li key={it.id} className="flex items-center gap-4 p-4">
-            <div className="flex-1">
-              <p className="font-medium">{it.product_name}</p>
-              <p className="text-sm text-gray-500 tabular-nums">
-                {formatPrice(it.product_price)} each · {it.stock} in stock
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  it.quantity > 1 && updateItem(it.product_id, it.quantity - 1)
-                }
-                disabled={it.quantity <= 1}
-                className="w-8 h-8 border rounded disabled:opacity-30"
-                aria-label="Decrease quantity"
-              >
-                −
-              </button>
-              <span className="w-8 text-center tabular-nums">{it.quantity}</span>
-              <button
-                type="button"
-                onClick={() =>
-                  it.quantity < it.stock &&
-                  updateItem(it.product_id, it.quantity + 1)
-                }
-                disabled={it.quantity >= it.stock}
-                className="w-8 h-8 border rounded disabled:opacity-30"
-                aria-label="Increase quantity"
-              >
-                +
-              </button>
-            </div>
-            <div className="w-20 text-right tabular-nums">
-              {formatPrice(it.product_price * it.quantity)}
-            </div>
-            <button
-              type="button"
-              onClick={() => removeItem(it.product_id)}
-              className="text-sm text-red-600 hover:underline"
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-x-16 gap-y-12">
+        <ul className="divide-y divide-rule border-y border-rule">
+          {cart.items.map((it) => (
+            <li
+              key={it.id}
+              className="grid grid-cols-[4rem_1fr_auto_auto] items-center gap-x-6 gap-y-2 py-6"
             >
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
+              <Thumb url={it.image_url} name={it.product_name} />
+              <div className="min-w-0">
+                <p className="text-ink leading-snug">{it.product_name}</p>
+                <p className="text-xs text-ink-faint mt-1 tnum">
+                  {formatPrice(it.product_price)} each · {it.stock} in stock
+                </p>
+              </div>
+              <div className="flex items-center gap-2 justify-self-end">
+                <QtyButton
+                  onClick={() =>
+                    it.quantity > 1 && updateItem(it.product_id, it.quantity - 1)
+                  }
+                  disabled={it.quantity <= 1}
+                  label="Decrease quantity"
+                >
+                  −
+                </QtyButton>
+                <span className="w-8 text-center tnum text-ink">{it.quantity}</span>
+                <QtyButton
+                  onClick={() =>
+                    it.quantity < it.stock &&
+                    updateItem(it.product_id, it.quantity + 1)
+                  }
+                  disabled={it.quantity >= it.stock}
+                  label="Increase quantity"
+                >
+                  +
+                </QtyButton>
+              </div>
+              <div className="tnum text-ink text-right justify-self-end min-w-[5rem]">
+                {formatPrice(it.product_price * it.quantity)}
+              </div>
+              <button
+                type="button"
+                onClick={() => removeItem(it.product_id)}
+                className="col-start-2 col-span-3 justify-self-end text-xs text-ink-soft hover:text-accent underline underline-offset-4 cursor-pointer"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
 
-      <div className="flex justify-between items-center mt-6">
-        <button
-          type="button"
-          onClick={() => clear()}
-          className="text-sm text-gray-600 hover:underline"
-        >
-          Clear cart
-        </button>
-        <div className="text-right">
-          <p className="text-sm text-gray-500">Total</p>
-          <p className="text-2xl font-semibold tabular-nums">
-            {formatPrice(cart.total)}
-          </p>
-        </div>
-      </div>
+        <aside className="lg:sticky lg:top-8 lg:self-start lg:w-64 flex flex-col gap-8">
+          <div>
+            <p className="uc-tight text-[0.7rem] text-ink-faint mb-2">
+              Subtotal
+            </p>
+            <p
+              className="font-display tnum text-ink text-[clamp(2rem,4vw,2.75rem)] leading-none"
+              style={{ fontVariationSettings: '"wght" 520, "opsz" 28' }}
+            >
+              {formatPrice(cart.total)}
+            </p>
+            <p className="text-xs text-ink-faint mt-3">
+              Shipping calculated at checkout.
+            </p>
+          </div>
 
-      <div className="mt-8 flex justify-end">
-        <Link
-          to="/checkout"
-          className="px-8 py-3 bg-gray-900 text-white text-sm uppercase tracking-wider"
-        >
-          Checkout
-        </Link>
+          <div className="flex flex-col gap-3">
+            <Link
+              to="/checkout"
+              className="bg-accent text-on-accent hover:bg-accent-soft transition-colors px-5 py-3 text-sm tracking-[0.01em] text-center"
+            >
+              Proceed to checkout
+            </Link>
+            <Link
+              to="/"
+              className="text-sm text-ink-soft hover:text-ink underline underline-offset-4 text-center"
+            >
+              Keep shopping
+            </Link>
+          </div>
+
+          <div className="pt-6 border-t border-rule">
+            <Button variant="link" onClick={() => clear()}>
+              Clear cart.
+            </Button>
+          </div>
+        </aside>
       </div>
-    </div>
+    </Page>
   )
 }

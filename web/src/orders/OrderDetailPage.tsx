@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { api, ApiError, formatPrice } from '../lib/api'
 import type { OrderResponse } from '../lib/api'
+import { Page } from '../components/Page'
+import { Masthead } from '../components/Masthead'
 import { StatusBadge, formatStatus } from './OrderStatus'
 
 export function OrderDetailPage() {
@@ -88,16 +90,28 @@ export function OrderDetailPage() {
     }
   }
 
-  if (loading) return <p className="p-8">Loading order…</p>
-  if (error)
+  if (loading) {
     return (
-      <div className="max-w-2xl mx-auto p-8">
-        <p className="text-red-600">{error}</p>
-        <Link to="/orders" className="underline text-sm mt-4 inline-block">
-          ← Back to orders
-        </Link>
-      </div>
+      <Page width="max-w-4xl">
+        <Masthead eyebrow="Order" title="Loading." />
+      </Page>
     )
+  }
+
+  if (error) {
+    return (
+      <Page width="max-w-4xl">
+        <Masthead eyebrow="Order" title="Couldn't load." caption={error} />
+        <Link
+          to="/orders"
+          className="text-sm text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors"
+        >
+          Back to all orders.
+        </Link>
+      </Page>
+    )
+  }
+
   if (!data) return null
 
   const { order, items, address } = data
@@ -105,51 +119,48 @@ export function OrderDetailPage() {
   const retryable = order.status === 'payment_failed'
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
+    <Page width="max-w-4xl">
       {isConfirmation ? (
-        <header className="mb-12">
-          <p className="text-xs uppercase tracking-widest text-gray-500">
-            {order.status === 'paid' ? 'Payment received' : 'Order placed'}
-          </p>
-          <h1 className="text-4xl font-semibold mt-2">Thank you.</h1>
-          {order.status === 'paid' ? (
-            <p className="text-gray-600 mt-3 max-w-xl">
-              Your payment went through. We'll email a receipt shortly.
-            </p>
-          ) : order.status === 'pending_payment' ? (
-            <p className="text-gray-600 mt-3 max-w-xl">
-              Stripe is still confirming your payment. This page will refresh
-              once the webhook lands — usually within a few seconds.
-            </p>
-          ) : order.status === 'payment_failed' ? (
-            <p className="text-gray-600 mt-3 max-w-xl">
-              Payment didn't go through.{' '}
-              <Link to={`/orders/${order.id}/pay`} className="underline">
-                Try again
-              </Link>
-              .
-            </p>
-          ) : (
-            <p className="text-gray-600 mt-3 max-w-xl">
-              We've received your order.
-            </p>
-          )}
-        </header>
+        <Masthead
+          eyebrow={order.status === 'paid' ? 'Payment received' : 'Order placed'}
+          title="Thank you."
+          caption={
+            order.status === 'paid'
+              ? "Your payment went through. We'll email a receipt shortly."
+              : order.status === 'pending_payment'
+                ? 'Stripe is still confirming your payment. This page will refresh once the webhook lands — usually within a few seconds.'
+                : order.status === 'payment_failed' ? (
+                    <>
+                      Payment didn't go through.{' '}
+                      <Link
+                        to={`/orders/${order.id}/pay`}
+                        className="text-ink underline underline-offset-4 decoration-accent"
+                      >
+                        Try again.
+                      </Link>
+                    </>
+                  )
+                : "We've received your order."
+          }
+        />
       ) : (
-        <header className="mb-10">
+        <>
           <Link
             to="/orders"
-            className="text-xs uppercase tracking-widest text-gray-500 hover:underline"
+            className="uc-tight text-[0.7rem] text-ink-faint hover:text-ink transition-colors inline-block mb-6"
           >
             ← All orders
           </Link>
-          <h1 className="text-3xl font-semibold mt-3">Order details</h1>
-        </header>
+          <Masthead eyebrow="Order" title={order.order_number} />
+        </>
       )}
 
-      <div className="grid sm:grid-cols-[auto_1fr] gap-x-12 gap-y-6 text-sm mb-12">
+      <dl className="grid sm:grid-cols-[auto_1fr] gap-x-12 gap-y-4 text-sm mb-14">
         <Detail label="Order number" value={order.order_number} mono />
-        <Detail label="Placed" value={new Date(order.created_at).toLocaleString()} />
+        <Detail
+          label="Placed"
+          value={new Date(order.created_at).toLocaleString()}
+        />
         <Detail label="Status" value={<StatusBadge status={order.status} />} />
         <Detail
           label="Shipping"
@@ -157,20 +168,24 @@ export function OrderDetailPage() {
         />
         <Detail label="Email" value={order.email} />
         {order.phone && <Detail label="Phone" value={order.phone} />}
-      </div>
+      </dl>
 
-      <section className="mb-12">
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 mb-3">Items</h2>
-        <ul className="divide-y border-t border-b">
+      <section className="mb-14">
+        <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-4">
+          <span className="tnum">01</span>
+          <span aria-hidden className="text-rule-strong mx-2">/</span>
+          Items
+        </h2>
+        <ul className="divide-y divide-rule border-y border-rule">
           {items.map((it) => (
-            <li key={it.id} className="flex justify-between gap-4 py-4">
-              <div className="flex-1">
-                <p className="font-medium">{it.product_name}</p>
-                <p className="text-sm text-gray-500 tabular-nums">
+            <li key={it.id} className="flex justify-between gap-6 py-5">
+              <div className="flex-1 min-w-0">
+                <p className="text-ink">{it.product_name}</p>
+                <p className="text-xs text-ink-faint tnum mt-1">
                   {formatPrice(it.unit_price_cents)} × {it.quantity}
                 </p>
               </div>
-              <span className="tabular-nums">
+              <span className="tnum text-ink shrink-0">
                 {formatPrice(it.unit_price_cents * it.quantity)}
               </span>
             </li>
@@ -179,18 +194,25 @@ export function OrderDetailPage() {
         <dl className="mt-6 ml-auto max-w-xs space-y-2 text-sm">
           <Row label="Subtotal" value={formatPrice(order.subtotal_cents)} />
           <Row label="Shipping" value={formatPrice(order.shipping_cents)} />
-          <div className="flex justify-between pt-3 border-t font-semibold text-base">
-            <dt>Total</dt>
-            <dd className="tabular-nums">{formatPrice(order.total_cents)}</dd>
+          <div className="flex justify-between pt-4 mt-2 border-t border-rule items-baseline">
+            <dt className="uc-tight text-[0.7rem] text-ink-faint">Total</dt>
+            <dd
+              className="font-display tnum text-ink text-[clamp(1.25rem,2.5vw,1.75rem)] leading-none"
+              style={{ fontVariationSettings: '"wght" 520, "opsz" 28' }}
+            >
+              {formatPrice(order.total_cents)}
+            </dd>
           </div>
         </dl>
       </section>
 
-      <section className="mb-12">
-        <h2 className="text-xs uppercase tracking-widest text-gray-500 mb-3">
+      <section className="mb-14">
+        <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-4">
+          <span className="tnum">02</span>
+          <span aria-hidden className="text-rule-strong mx-2">/</span>
           Shipping to
         </h2>
-        <address className="not-italic text-sm leading-relaxed">
+        <address className="not-italic text-sm leading-relaxed text-ink">
           {address.recipient_name}
           <br />
           {address.line1}
@@ -208,14 +230,14 @@ export function OrderDetailPage() {
       </section>
 
       {retryable && (
-        <div className="border-t pt-8 mb-8">
+        <div className="border-t border-rule pt-8 mb-8">
           <Link
             to={`/orders/${order.id}/pay`}
-            className="inline-block px-6 py-2 bg-gray-900 text-white text-sm uppercase tracking-wider"
+            className="inline-block bg-accent text-on-accent hover:bg-accent-soft transition-colors px-6 py-3 text-sm tracking-[0.01em]"
           >
             Retry payment
           </Link>
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-3 text-xs text-ink-faint max-w-md">
             Your card was declined. You can try again with a different card —
             stock is held until you cancel.
           </p>
@@ -223,23 +245,25 @@ export function OrderDetailPage() {
       )}
 
       {cancellable && (
-        <div className="border-t pt-8">
+        <div className="border-t border-rule pt-8">
           <button
             type="button"
             onClick={handleCancel}
             disabled={cancelling}
-            className="text-sm text-red-700 hover:underline disabled:opacity-50"
+            className="text-sm text-ink-soft hover:text-accent underline underline-offset-4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {cancelling ? 'Cancelling…' : `Cancel this order (${formatStatus(order.status)})`}
+            {cancelling
+              ? 'Cancelling.'
+              : `Cancel this order (${formatStatus(order.status).toLowerCase()}).`}
           </button>
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-3 text-xs text-ink-faint max-w-md">
             {order.status === 'paid'
               ? 'Cancelling refunds your payment via Stripe and restores stock. Once the order ships, this option goes away.'
               : 'Cancellation restores stock. Once payment is processed and the order ships, this option goes away.'}
           </p>
         </div>
       )}
-    </div>
+    </Page>
   )
 }
 
@@ -254,8 +278,10 @@ function Detail({
 }) {
   return (
     <>
-      <dt className="text-gray-500 uppercase text-xs tracking-widest">{label}</dt>
-      <dd className={mono ? 'tabular-nums' : ''}>{value}</dd>
+      <dt className="uc-tight text-[0.7rem] text-ink-faint self-baseline">
+        {label}
+      </dt>
+      <dd className={`text-ink ${mono ? 'tnum' : ''}`}>{value}</dd>
     </>
   )
 }
@@ -263,8 +289,8 @@ function Detail({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between">
-      <dt className="text-gray-500">{label}</dt>
-      <dd className="tabular-nums">{value}</dd>
+      <dt className="text-ink-soft">{label}</dt>
+      <dd className="tnum text-ink">{value}</dd>
     </div>
   )
 }

@@ -1,6 +1,8 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useCart } from '../cart/useCart'
+import { useReducedMotion } from '../lib/motion'
 import { ThemeToggle } from './ThemeToggle'
 
 const linkBase =
@@ -19,6 +21,24 @@ export function Nav() {
     await refresh()
     navigate('/')
   }
+
+  // Cart count pulse — when itemCount changes (add/remove), give the chip a
+  // short scale beat so the persistent nav signal links to the cart action.
+  const reduced = useReducedMotion()
+  const [pulse, setPulse] = useState(false)
+  const prevCount = useRef(itemCount)
+  useEffect(() => {
+    if (reduced) {
+      prevCount.current = itemCount
+      return
+    }
+    if (itemCount !== prevCount.current) {
+      prevCount.current = itemCount
+      setPulse(true)
+      const t = window.setTimeout(() => setPulse(false), 240)
+      return () => window.clearTimeout(t)
+    }
+  }, [itemCount, reduced])
 
   return (
     <nav className="border-b border-rule">
@@ -49,7 +69,18 @@ export function Nav() {
           >
             Cart{' '}
             {itemCount > 0 && (
-              <span className="tnum text-ink-faint">— {itemCount}</span>
+              <span
+                className="tnum text-ink-faint inline-block"
+                style={{
+                  transform: pulse ? 'scale(1.08)' : 'scale(1)',
+                  transition: reduced
+                    ? 'none'
+                    : 'transform 240ms var(--ease-out-quart)',
+                  transformOrigin: 'left center',
+                }}
+              >
+                — {itemCount}
+              </span>
             )}
           </NavLink>
           <NavLink

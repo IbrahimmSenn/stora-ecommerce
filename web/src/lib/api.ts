@@ -18,6 +18,8 @@ export class ApiError extends Error {
 type Options = {
   method?: string
   body?: unknown
+  /** Abort the request after this many ms. Default 20s. */
+  timeoutMs?: number
 }
 
 export async function request<T>(path: string, opts: Options = {}): Promise<T> {
@@ -25,12 +27,22 @@ export async function request<T>(path: string, opts: Options = {}): Promise<T> {
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
 
-  const res = await fetch(path, {
-    method: opts.method ?? 'GET',
-    credentials: 'include',
-    headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-  })
+  const controller = new AbortController()
+  const timeoutMs = opts.timeoutMs ?? 20_000
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method: opts.method ?? 'GET',
+      credentials: 'include',
+      headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      signal: controller.signal,
+    })
+  } finally {
+    window.clearTimeout(timer)
+  }
 
   if (res.status === 204) return undefined as T
 
@@ -126,6 +138,17 @@ export type AdminProduct = {
   brand_name?: string | null
   created_at?: string
   updated_at?: string
+}
+
+export type ProductImage = {
+  id: string
+  product_id: string
+  url: string
+  is_primary: boolean
+}
+
+export type ProductDetail = AdminProduct & {
+  images: ProductImage[]
 }
 
 export type Category = {
@@ -266,6 +289,7 @@ export const api = {
     `/api/v1/auth/oauth/${provider}`,
   // Admin — product CRUD + categories + brands.
   adminListProducts: () => request<ProductsResponse>('/api/v1/products?page_size=100'),
+  getProduct: (id: string) => request<ProductDetail>(`/api/v1/products/${id}`),
   adminCreateProduct: (body: Partial<AdminProduct>) =>
     request<AdminProduct>('/api/v1/admin/products', { method: 'POST', body }),
   adminUpdateProduct: (id: string, body: Partial<AdminProduct>) =>

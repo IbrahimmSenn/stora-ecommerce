@@ -5,7 +5,9 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 
 type Encryptor struct {
 	gcm cipher.AEAD
+	key []byte // raw 32-byte key — held to derive HMAC lookup digests.
 }
 
 // NewEncryptor builds an AES-256-GCM encryptor. hexKey must decode to 32 bytes.
@@ -34,7 +37,21 @@ func NewEncryptor(hexKey string) (*Encryptor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init gcm: %w", err)
 	}
-	return &Encryptor{gcm: gcm}, nil
+	return &Encryptor{gcm: gcm, key: key}, nil
+}
+
+// HMAC returns a deterministic 32-byte HMAC-SHA256 of v under the encryption
+// key. Use as an opaque equality-lookup index for an encrypted column when
+// SELECT-by-value is required (e.g. payments.stripe_payment_intent_id — the
+// webhook arrives with the plaintext id and needs to find the row). Returns
+// nil for empty input so callers can store SQL NULL.
+func (e *Encryptor) HMAC(v string) []byte {
+	if v == "" {
+		return nil
+	}
+	h := hmac.New(sha256.New, e.key)
+	h.Write([]byte(v))
+	return h.Sum(nil)
 }
 
 // Encrypt returns (nil, nil) for empty input so callers can store SQL NULL

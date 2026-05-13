@@ -132,7 +132,7 @@ func main() {
 	ordersService := orders.NewService(ordersRepo, cartService, encryptor, refunder)
 	ordersHandler := orders.NewHandler(ordersService)
 
-	paymentsRepo := payments.NewRepository(db)
+	paymentsRepo := payments.NewRepository(db, encryptor)
 	paymentsService = payments.NewService(
 		paymentsRepo, ordersService, paymentsEventPublisher,
 		payments.NewStripeClient(),

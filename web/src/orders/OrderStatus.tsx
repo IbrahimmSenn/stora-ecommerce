@@ -16,21 +16,24 @@ export function formatStatus(status: string): string {
   return STATUS_LABELS[status] ?? status
 }
 
+// Brief: one honest accent. Accent reserved for `paid` and `delivered` —
+// the positive terminal states. Everything else stays in the neutral scale,
+// distinguished by italic/weight cues, not hue.
 const STATUS_TONE: Record<string, string> = {
-  pending_payment: 'border-amber-300 text-amber-800 bg-amber-50',
-  paid: 'border-emerald-300 text-emerald-800 bg-emerald-50',
-  payment_failed: 'border-red-300 text-red-800 bg-red-50',
-  processing: 'border-sky-300 text-sky-800 bg-sky-50',
-  shipped: 'border-indigo-300 text-indigo-800 bg-indigo-50',
-  delivered: 'border-emerald-300 text-emerald-800 bg-emerald-50',
-  cancelled: 'border-gray-300 text-gray-700 bg-gray-50',
-  refunded: 'border-gray-300 text-gray-700 bg-gray-50',
+  pending_payment: 'text-ink-soft',
+  paid: 'text-accent',
+  payment_failed: 'text-ink-soft italic',
+  processing: 'text-ink-soft',
+  shipped: 'text-ink',
+  delivered: 'text-accent',
+  cancelled: 'text-ink-faint italic',
+  refunded: 'text-ink-faint italic',
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const tone = STATUS_TONE[status] ?? 'border-gray-300 text-gray-700 bg-gray-50'
+  const tone = STATUS_TONE[status] ?? 'text-ink-soft'
   return (
-    <span className={`inline-block px-2 py-0.5 text-xs border ${tone}`}>
+    <span className={`uc-tight text-[0.7rem] ${tone}`}>
       {formatStatus(status)}
     </span>
   )
