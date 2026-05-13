@@ -19,6 +19,8 @@
   --color-accent: var(--color-accent);
   --color-accent-soft: var(--color-accent-soft);
   --color-on-accent: var(--color-on-accent);
+  --color-highlight: var(--color-highlight);
+  --color-highlight-ink: var(--color-highlight-ink);
   --color-positive: var(--color-positive);
   --color-warning: var(--color-warning);
   --color-negative: var(--color-negative);

@@ -1,19 +1,20 @@
-/* tokens.css — design tokens per .impeccable.md
+/* tokens.css — Stora design tokens
  *
- * Palette: near-monochrome neutrals tinted toward oxblood (hue 25) in light
- * mode, tinted toward cool deep-ink (hue 250) in dark mode. One accent,
- * oxblood, used rarely. No pure black / pure white anywhere.
+ * Near-monochrome OKLCH palette. Light mode is a clean cool near-white
+ * (surface hue 60) with a terracotta accent (hue 38). Dark mode is a cool
+ * deep-ink (hue 250) with a lighter terracotta. One accent, used rarely. No
+ * pure black or white anywhere.
  *
  * Tailwind v4 reads the @theme block in index.css to generate utility
- * classes (bg-surface, text-ink, bg-accent, etc). This file holds the
- * raw vars and the .dark override.
+ * classes (bg-surface, text-ink, bg-accent, border-rule, bg-highlight, …).
+ * This file holds the raw vars and the .dark override.
  */
 
 :root {
-  /* Surfaces — page background, raised, sunken. Warm bone tinted toward accent. */
-  --color-surface-0: oklch(0.97 0.005 25);
-  --color-surface-1: oklch(0.99 0.003 25);
-  --color-surface-2: oklch(0.93 0.006 25);
+  /* Surfaces — page, raised, sunken. Clean near-white (Net-a-Porter / SSENSE). */
+  --color-surface-0: oklch(0.985 0.003 60);
+  --color-surface-1: oklch(1.00 0 0);
+  --color-surface-2: oklch(0.95 0.004 60);
 
   /* Text — graphite ink, secondary, tertiary. */
   --color-ink: oklch(0.18 0.01 25);
@@ -24,18 +25,22 @@
   --color-rule: oklch(0.88 0.006 25);
   --color-rule-strong: oklch(0.78 0.008 25);
 
-  /* Accent — oxblood. Used for primary actions, stock signals, emphasis. */
-  --color-accent: oklch(0.42 0.13 25);
-  --color-accent-soft: oklch(0.48 0.12 25);
-  --color-on-accent: oklch(0.99 0.003 25);
+  /* Accent — terracotta. Used for primary actions, focus, errors. */
+  --color-accent: oklch(0.62 0.17 38);
+  --color-accent-soft: oklch(0.55 0.16 38);
+  --color-on-accent: oklch(0.99 0.003 60);
 
-  /* Feedback — desaturated, calm. */
+  /* Highlight — amber. Sale / best-seller badges. */
+  --color-highlight: oklch(0.88 0.13 85);
+  --color-highlight-ink: oklch(0.35 0.08 75);
+
+  /* Feedback — desaturated, calm. Negative shares the accent hue. */
   --color-positive: oklch(0.52 0.10 150);
   --color-warning: oklch(0.62 0.13 65);
   --color-negative: oklch(0.45 0.15 25);
 
   /* Font stacks. */
-  --font-display: "Bricolage Grotesque Variable", "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Lato", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Hanken Grotesk Variable", "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 
   /* Spacing scale (4pt). */
@@ -73,9 +78,12 @@
   --color-rule: oklch(0.27 0.010 250);
   --color-rule-strong: oklch(0.38 0.012 250);
 
-  --color-accent: oklch(0.65 0.16 25);
-  --color-accent-soft: oklch(0.58 0.14 25);
+  --color-accent: oklch(0.70 0.16 38);
+  --color-accent-soft: oklch(0.62 0.16 38);
   --color-on-accent: oklch(0.14 0.008 250);
+
+  --color-highlight: oklch(0.78 0.13 85);
+  --color-highlight-ink: oklch(0.20 0.04 75);
 
   --color-positive: oklch(0.70 0.12 150);
   --color-warning: oklch(0.74 0.13 65);
