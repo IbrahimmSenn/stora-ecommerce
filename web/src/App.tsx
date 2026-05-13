@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Nav } from './components/Nav'
 import { ProductsPage } from './products/ProductsPage'
+import { ProductDetailPage } from './products/ProductDetailPage'
 import { CartPage } from './cart/CartPage'
 import { CheckoutPage } from './checkout/CheckoutPage'
 import { PaymentPage } from './payment/PaymentPage'
@@ -27,6 +28,7 @@ function App() {
       <Routes>
         <Route path="/" element={<ProductsPage />} />
         <Route path="/shop/:slug" element={<ProductsPage />} />
+        <Route path="/product/:id" element={<ProductDetailPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/orders" element={<OrderHistoryPage />} />

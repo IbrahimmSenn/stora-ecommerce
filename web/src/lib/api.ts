@@ -153,6 +153,9 @@ export type ProductImage = {
 }
 
 export type ProductDetail = AdminProduct & {
+  category_slug?: string | null
+  avg_rating: number
+  review_count: number
   images: ProductImage[]
 }
 
