@@ -22,18 +22,18 @@ type Theme = 'light' | 'dark'
 
 const STRIPE_THEME = {
   light: {
-    colorPrimary: '#8a2c1f',
-    colorBackground: '#fbfbfa',
-    colorText: '#251714',
-    colorDanger: '#8a2c1f',
-    borderColor: '#c4bdba',
+    colorPrimary: '#c95f3f',
+    colorBackground: '#fafaf9',
+    colorText: '#241f1d',
+    colorDanger: '#c95f3f',
+    borderColor: '#bdb5b1',
   },
   dark: {
-    colorPrimary: '#d76149',
-    colorBackground: '#262b33',
-    colorText: '#f0ece8',
-    colorDanger: '#d76149',
-    borderColor: '#515967',
+    colorPrimary: '#e3805f',
+    colorBackground: '#1a1d22',
+    colorText: '#ece9e3',
+    colorDanger: '#e3805f',
+    borderColor: '#4f5460',
   },
 } as const
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Cart } from '../lib/api'
 import { formatPrice } from '../lib/api'
 import { useCart } from '../cart/useCart'
+import { Button } from '../components/Button'
 
 type Props = {
   guestCart: Cart
@@ -28,10 +29,13 @@ export function MergePromptModal({ guestCart, userCart, onResolved }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-10">
-      <div className="bg-white rounded-lg max-w-2xl w-full p-6">
-        <h2 className="text-xl font-semibold mb-2">Two carts found</h2>
-        <p className="text-sm text-gray-600 mb-6">
+    <div className="fixed inset-0 bg-ink/40 flex items-center justify-center p-4 z-10">
+      <div className="bg-raised border border-rule max-w-2xl w-full p-6">
+        <p className="uc-tight text-[0.7rem] text-ink-faint mb-2">Cart</p>
+        <h2 className="font-display text-xl text-ink font-bold mb-2">
+          Two carts found.
+        </h2>
+        <p className="text-sm text-ink-soft mb-6 max-w-[55ch]">
           You added items as a guest and already have items in your account. Pick which cart to keep — the other will be discarded.
         </p>
 
@@ -40,25 +44,23 @@ export function MergePromptModal({ guestCart, userCart, onResolved }: Props) {
           <CartSummary title="Your account cart" cart={userCart} />
         </div>
 
-        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+        {error && <p className="text-xs text-accent mb-3">{error}</p>}
 
         <div className="flex justify-end gap-3">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
             disabled={busy}
             onClick={() => choose('user')}
-            className="px-4 py-2 border rounded disabled:opacity-50"
           >
             Use account cart
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="primary"
             disabled={busy}
             onClick={() => choose('guest')}
-            className="px-4 py-2 bg-black text-white rounded disabled:opacity-50"
           >
             Use guest cart
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -67,27 +69,27 @@ export function MergePromptModal({ guestCart, userCart, onResolved }: Props) {
 
 function CartSummary({ title, cart }: { title: string; cart: Cart }) {
   return (
-    <div className="border rounded p-3">
-      <h3 className="font-medium mb-2">{title}</h3>
+    <div className="border border-rule p-3">
+      <p className="uc-tight text-[0.7rem] text-ink-faint mb-2">{title}</p>
       {cart.items.length === 0 ? (
-        <p className="text-sm text-gray-500">Empty</p>
+        <p className="text-sm text-ink-faint">Empty.</p>
       ) : (
-        <ul className="space-y-1 text-sm">
+        <ul className="space-y-1 text-sm text-ink">
           {cart.items.map((it) => (
             <li key={it.id} className="flex justify-between">
               <span>
                 {it.product_name} × {it.quantity}
               </span>
-              <span className="tabular-nums">
+              <span className="tnum">
                 {formatPrice(it.product_price * it.quantity)}
               </span>
             </li>
           ))}
         </ul>
       )}
-      <div className="mt-2 pt-2 border-t text-sm flex justify-between font-medium">
-        <span>Total</span>
-        <span className="tabular-nums">{formatPrice(cart.total)}</span>
+      <div className="mt-2 pt-2 border-t border-rule text-sm flex justify-between text-ink">
+        <span className="uc-tight text-[0.7rem] text-ink-faint">Total</span>
+        <span className="tnum">{formatPrice(cart.total)}</span>
       </div>
     </div>
   )
