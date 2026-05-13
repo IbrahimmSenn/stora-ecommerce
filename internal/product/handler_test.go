@@ -129,7 +129,7 @@ func setupProductHandler() (*Handler, *mockProductRepo) {
 func seedProduct(repo *mockProductRepo) *Product {
 	p := &Product{
 		ID: uuid.New(), Name: "Test Laptop", Price: 99900,
-		StockQuantity: 10, WeightG: 2000,
+		StockQuantity: 10, WeightG: intPtr(2000),
 	}
 	repo.products[p.ID.String()] = p
 	return p
@@ -223,7 +223,7 @@ func TestCreateEndpoint_Success(t *testing.T) {
 	h, _ := setupProductHandler()
 
 	body := CreateProductRequest{
-		Name: "New Phone", Price: 49900, StockQuantity: 50, WeightG: 200,
+		Name: "New Phone", Price: 49900, StockQuantity: 50, WeightG: intPtr(200),
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/products", bytes.NewReader(b))
@@ -242,7 +242,7 @@ func TestCreateEndpoint_Success(t *testing.T) {
 func TestCreateEndpoint_MissingName(t *testing.T) {
 	h, _ := setupProductHandler()
 
-	body := CreateProductRequest{Price: 49900, WeightG: 200}
+	body := CreateProductRequest{Price: 49900, WeightG: intPtr(200)}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/products", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")

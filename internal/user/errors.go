@@ -6,6 +6,7 @@ import (
 )
 
 var (
-	ErrEmailExists  = errors.New("email already taken")
-	ErrUserNotFound = errors.New("user not found")
+	ErrEmailExists    = errors.New("email already taken")
+	ErrUserNotFound   = errors.New("user not found")
+	ErrCaptchaInvalid = errors.New("captcha verification failed")
 )

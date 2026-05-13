@@ -31,7 +31,7 @@ func TestService_Create_Validation(t *testing.T) {
 	// Missing required name.
 	_, err := svc.Create(context.Background(), CreateProductRequest{
 		Price:   1000,
-		WeightG: 100,
+		WeightG: intPtr(100),
 	})
 	assert.Error(t, err)
 }
@@ -43,7 +43,7 @@ func TestService_Create_InvalidCategoryID(t *testing.T) {
 	_, err := svc.Create(context.Background(), CreateProductRequest{
 		Name:       "Test Product",
 		Price:      1000,
-		WeightG:    100,
+		WeightG:    intPtr(100),
 		CategoryID: &badID,
 	})
 	assert.Error(t, err)
@@ -57,7 +57,7 @@ func TestService_Create_InvalidBrandID(t *testing.T) {
 	_, err := svc.Create(context.Background(), CreateProductRequest{
 		Name:    "Test Product",
 		Price:   1000,
-		WeightG: 100,
+		WeightG: intPtr(100),
 		BrandID: &badID,
 	})
 	assert.Error(t, err)
@@ -108,3 +108,5 @@ func (s *stubRepo) DeleteImage(_ context.Context, _ string, _ string) error {
 func (s *stubRepo) GetImages(_ context.Context, _ string) ([]ProductImage, error) {
 	return []ProductImage{}, nil
 }
+
+func intPtr(i int) *int { return &i }

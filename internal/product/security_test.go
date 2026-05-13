@@ -85,13 +85,13 @@ func TestSecurity_XSS_CreateProduct(t *testing.T) {
 		{
 			name: "script_in_name",
 			body: CreateProductRequest{
-				Name: `<script>alert('xss')</script>`, Price: 1000, WeightG: 100,
+				Name: `<script>alert('xss')</script>`, Price: 1000, WeightG: intPtr(100),
 			},
 		},
 		{
 			name: "img_onerror_in_name",
 			body: CreateProductRequest{
-				Name: `"><img src=x onerror=alert(1)>`, Price: 1000, WeightG: 100,
+				Name: `"><img src=x onerror=alert(1)>`, Price: 1000, WeightG: intPtr(100),
 			},
 		},
 		{
@@ -99,7 +99,7 @@ func TestSecurity_XSS_CreateProduct(t *testing.T) {
 			body: func() CreateProductRequest {
 				desc := `<script>document.cookie</script>`
 				return CreateProductRequest{
-					Name: "Normal Product", Description: &desc, Price: 1000, WeightG: 100,
+					Name: "Normal Product", Description: &desc, Price: 1000, WeightG: intPtr(100),
 				}
 			}(),
 		},
@@ -233,7 +233,7 @@ func TestSecurity_NegativeValues_CreateProduct(t *testing.T) {
 	h, _ := setupProductHandler()
 
 	body := CreateProductRequest{
-		Name: "Negative Test", Price: -100, StockQuantity: -5, WeightG: -10,
+		Name: "Negative Test", Price: -100, StockQuantity: -5, WeightG: intPtr(-10),
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/products", bytes.NewReader(b))

@@ -4,6 +4,7 @@ package user
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -38,7 +39,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
 		case errors.Is(err, ErrEmailExists):
 			response.Error(w, http.StatusConflict, "email already taken")
+		case errors.Is(err, ErrCaptchaInvalid):
+			log.Printf("register: captcha rejected: %v", err)
+			response.Error(w, http.StatusBadRequest, "captcha verification failed")
 		default:
+			log.Printf("register: internal error: %v", err)
 			response.Error(w, http.StatusInternalServerError, "internal server error")
 		}
 		return

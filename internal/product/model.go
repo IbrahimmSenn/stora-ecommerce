@@ -16,7 +16,7 @@ type Product struct {
 	StockQuantity  int        `json:"stock_quantity"`
 	CategoryID     *uuid.UUID `json:"category_id,omitempty"`
 	BrandID        *uuid.UUID `json:"brand_id,omitempty"`
-	WeightG        int        `json:"weight_g"`
+	WeightG        *int       `json:"weight_g,omitempty"`
 	WeightOz       *int       `json:"weight_oz,omitempty"`
 	DimensionsCm   *float64   `json:"dimensions_cm,omitempty"`
 	DimensionsInch *float64   `json:"dimensions_inch,omitempty"`
@@ -65,7 +65,7 @@ type CreateProductRequest struct {
 	StockQuantity int      `json:"stock_quantity" validate:"gte=0"`
 	CategoryID    *string  `json:"category_id,omitempty"`
 	BrandID       *string  `json:"brand_id,omitempty"`
-	WeightG       int      `json:"weight_g" validate:"gte=0"`
+	WeightG       *int     `json:"weight_g,omitempty" validate:"omitempty,gte=0"`
 	DimensionsCm  *float64 `json:"dimensions_cm,omitempty" validate:"omitempty,gte=0"`
 }
 

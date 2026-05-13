@@ -41,10 +41,11 @@ func (s *userService) Register(ctx context.Context, req RegisterRequest) (*UserR
 		return nil, err
 	}
 
-	// Verify captcha if configured.
+	// Verify captcha if configured. Wrap with ErrCaptchaInvalid so the
+	// handler can map it to 400, and preserve the underlying reason for logs.
 	if s.captcha != nil {
 		if err := s.captcha.Verify(req.CaptchaToken); err != nil {
-			return nil, fmt.Errorf("captcha verification: %w", err)
+			return nil, fmt.Errorf("%w: %v", ErrCaptchaInvalid, err)
 		}
 	}
 
