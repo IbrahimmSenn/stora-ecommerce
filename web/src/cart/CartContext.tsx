@@ -7,10 +7,12 @@ import {
 import type { ReactNode } from 'react'
 import { api, ApiError } from '../lib/api'
 import type { Cart } from '../lib/api'
+import { useAuth } from '../auth/useAuth'
 import { CartCtx } from './cartCtx'
 import type { CartState } from './cartCtx'
 
 export function CartProvider({ children }: { children: ReactNode }) {
+  const { initializing: authInitializing, email } = useAuth()
   const [cart, setCart] = useState<Cart | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,9 +46,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount
+    // Wait for AuthProvider's mount-time refresh to settle, then fetch the
+    // cart. Re-fetches when `email` changes (login/logout) so the navbar
+    // reflects the correct cart for the current identity.
+    if (authInitializing) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- post-auth fetch
     void refresh()
-  }, [refresh])
+  }, [refresh, authInitializing, email])
 
   const addItem = useCallback(
     (productId: string, quantity: number) =>

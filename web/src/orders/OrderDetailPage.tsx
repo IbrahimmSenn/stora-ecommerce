@@ -4,12 +4,14 @@ import { api, ApiError, formatPrice } from '../lib/api'
 import type { OrderResponse } from '../lib/api'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
+import { useAuth } from '../auth/useAuth'
 import { StatusBadge, formatStatus } from './OrderStatus'
 
 export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
   const isConfirmation = location.pathname.endsWith('/confirmation')
+  const { initializing } = useAuth()
 
   const [data, setData] = useState<OrderResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -18,6 +20,10 @@ export function OrderDetailPage() {
 
   useEffect(() => {
     if (!id) return
+    // Wait for the AuthProvider's mount-time refresh to settle before
+    // fetching — otherwise a page reload (e.g. the Stripe checkout redirect)
+    // hits the API unauthenticated and gets ErrForbidden.
+    if (initializing) return
     let cancelled = false
     setLoading(true)
     api
@@ -36,7 +42,7 @@ export function OrderDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, initializing])
 
   // After Stripe redirects to /confirmation, the webhook may not have landed
   // yet — poll for ~10s while the order is still pending_payment so the page

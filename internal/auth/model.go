@@ -21,7 +21,10 @@ type LoginResponse struct {
 }
 
 type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token" validate:"required"`
+	// Optional in the JSON body: when the refresh_token HttpOnly cookie is
+	// present the handler reads it from there and populates this field before
+	// calling the service. The service still requires a non-empty value.
+	RefreshToken string `json:"refresh_token"`
 }
 
 type ForgotPasswordRequest struct {

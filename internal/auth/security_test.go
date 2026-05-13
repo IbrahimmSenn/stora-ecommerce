@@ -121,17 +121,29 @@ func TestSecurity_MalformedJSON_Login(t *testing.T) {
 func TestSecurity_MalformedJSON_Refresh(t *testing.T) {
 	h, _, _ := setupAuthTestRouter()
 
-	payloads := []string{``, `{`, `null`, `[]`}
+	// Each payload pairs with the status we expect after cookie-fallback
+	// support was added: truly malformed JSON still returns 400, but valid
+	// JSON that simply carries no token (empty body, `null`) now returns
+	// 401 because the cookie fallback also yields no token.
+	cases := []struct {
+		payload string
+		status  int
+	}{
+		{``, http.StatusUnauthorized},
+		{`{`, http.StatusBadRequest},
+		{`null`, http.StatusUnauthorized},
+		{`[]`, http.StatusBadRequest},
+	}
 
-	for _, payload := range payloads {
-		t.Run(payload, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.payload, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh",
-				bytes.NewReader([]byte(payload)))
+				bytes.NewReader([]byte(tc.payload)))
 			req.Header.Set("Content-Type", "application/json")
 			rr := httptest.NewRecorder()
 			h.Refresh(rr, req)
 
-			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assert.Equal(t, tc.status, rr.Code)
 		})
 	}
 }

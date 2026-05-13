@@ -272,6 +272,10 @@ export const api = {
       method: 'POST',
       body: { email, password, totp_code },
     }),
+  refresh: () =>
+    request<LoginResponse>('/api/v1/auth/refresh', { method: 'POST' }),
+  logout: () =>
+    request<{ message: string }>('/api/v1/auth/logout', { method: 'POST' }),
   register: (email: string, password: string, captchaToken?: string) =>
     request<{ message: string }>('/api/v1/auth/register', {
       method: 'POST',

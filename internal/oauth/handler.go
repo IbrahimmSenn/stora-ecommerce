@@ -73,6 +73,18 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// HttpOnly cookie carries the refresh token so it survives a full page
+	// reload (e.g. the Stripe checkout redirect). Mirrors the email/password
+	// login flow in internal/auth/handler.go.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    loginResp.RefreshToken,
+		Path:     "/api/v1/auth",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   7 * 24 * 60 * 60,
+	})
+
 	// Redirect back to the frontend with tokens as query parameters.
 	redirectURL := fmt.Sprintf("%s/?access_token=%s&refresh_token=%s",
 		h.baseURL,

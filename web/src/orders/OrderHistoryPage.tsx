@@ -4,6 +4,7 @@ import { api, ApiError, formatPrice } from '../lib/api'
 import type { OrderSummary } from '../lib/api'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
+import { useAuth } from '../auth/useAuth'
 import { StatusBadge } from './OrderStatus'
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
@@ -19,6 +20,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
 ]
 
 export function OrderHistoryPage() {
+  const { initializing } = useAuth()
   const [orders, setOrders] = useState<OrderSummary[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,8 +51,11 @@ export function OrderHistoryPage() {
   }, [status, from, to])
 
   useEffect(() => {
+    // Wait for the auth-context mount-refresh to settle so the API sees the
+    // user, not a guest. See OrderDetailPage for the same gate.
+    if (initializing) return
     void load()
-  }, [load])
+  }, [load, initializing])
 
   return (
     <Page width="max-w-4xl">

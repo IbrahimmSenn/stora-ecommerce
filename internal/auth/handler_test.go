@@ -169,11 +169,13 @@ func TestRefreshEndpoint_InvalidToken(t *testing.T) {
 func TestRefreshEndpoint_EmptyToken(t *testing.T) {
 	h, _, _ := setupAuthTestRouter()
 
+	// Empty body field AND no refresh_token cookie present — semantically
+	// "no credentials", so 401 (was 400 before cookie support landed).
 	rr := doPost(h.Refresh, "/api/v1/auth/refresh", RefreshRequest{
 		RefreshToken: "",
 	})
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
 // --- Logout endpoint integration tests ---

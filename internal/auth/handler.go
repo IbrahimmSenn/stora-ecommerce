@@ -4,6 +4,7 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -11,6 +12,37 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 )
+
+// refreshCookieName is scoped to /api/v1/auth so the long-lived refresh
+// token is only sent on the endpoints that need it (refresh, logout), not
+// every API call.
+const (
+	refreshCookieName = "refresh_token"
+	refreshCookiePath = "/api/v1/auth"
+	refreshCookieTTL  = 7 * 24 * 60 * 60 // 7 days in seconds, matches token.go
+)
+
+func setRefreshCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    token,
+		Path:     refreshCookiePath,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   refreshCookieTTL,
+	})
+}
+
+func clearRefreshCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    "",
+		Path:     refreshCookiePath,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}
 
 type Handler struct {
 	service AuthService
@@ -49,6 +81,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setRefreshCookie(w, resp.RefreshToken)
 	response.JSON(w, http.StatusOK, resp)
 }
 
@@ -58,8 +91,18 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req RefreshRequest
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
+	// Empty body is fine — the cookie may carry the token instead.
+	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.RefreshToken == "" {
+		if c, err := r.Cookie(refreshCookieName); err == nil {
+			req.RefreshToken = c.Value
+		}
+	}
+	if req.RefreshToken == "" {
+		response.Error(w, http.StatusUnauthorized, "no refresh token provided")
 		return
 	}
 
@@ -71,12 +114,16 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
 		case errors.Is(err, ErrInvalidToken),
 			errors.Is(err, ErrTokenNotFound):
+			clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "invalid refresh token")
 		case errors.Is(err, ErrTokenUsed):
+			clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "refresh token already used — all sessions revoked")
 		case errors.Is(err, ErrTokenRevoked):
+			clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "refresh token has been revoked")
 		case errors.Is(err, ErrExpiredToken):
+			clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "refresh token has expired")
 		default:
 			response.Error(w, http.StatusInternalServerError, "internal server error")
@@ -84,6 +131,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setRefreshCookie(w, resp.RefreshToken)
 	response.JSON(w, http.StatusOK, resp)
 }
 
@@ -99,6 +147,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clearRefreshCookie(w)
 	response.JSON(w, http.StatusOK, AuthMessageResponse{Message: "logged out successfully"})
 }
 
