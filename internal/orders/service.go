@@ -3,7 +3,9 @@ package orders
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -50,21 +52,37 @@ func (f RefunderFunc) RefundOrder(ctx context.Context, orderID uuid.UUID) error 
 	return f(ctx, orderID)
 }
 
-type service struct {
-	repo      Repository
-	carts     cart.Service
-	encryptor *crypto.Encryptor
-	validate  *validator.Validate
-	refunder  Refunder
+// Reconciler asks the payments service to pull the current PaymentIntent
+// state from Stripe and apply any pending side effects. Same consumer-side
+// interface pattern as Refunder — wired via closure from main.go.
+type Reconciler interface {
+	Reconcile(ctx context.Context, orderID uuid.UUID) error
 }
 
-func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, refunder Refunder) Service {
+// ReconcilerFunc adapts a plain function to the Reconciler interface.
+type ReconcilerFunc func(ctx context.Context, orderID uuid.UUID) error
+
+func (f ReconcilerFunc) Reconcile(ctx context.Context, orderID uuid.UUID) error {
+	return f(ctx, orderID)
+}
+
+type service struct {
+	repo       Repository
+	carts      cart.Service
+	encryptor  *crypto.Encryptor
+	validate   *validator.Validate
+	refunder   Refunder
+	reconciler Reconciler
+}
+
+func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, refunder Refunder, reconciler Reconciler) Service {
 	return &service{
-		repo:      repo,
-		carts:     carts,
-		encryptor: encryptor,
-		validate:  validator.New(),
-		refunder:  refunder,
+		repo:       repo,
+		carts:      carts,
+		encryptor:  encryptor,
+		validate:   validator.New(),
+		refunder:   refunder,
+		reconciler: reconciler,
 	}
 }
 
@@ -196,6 +214,29 @@ func (s *service) Checkout(ctx context.Context, userID *uuid.UUID, guestID *uuid
 }
 
 func (s *service) GetByID(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, id uuid.UUID) (*OrderResponse, error) {
+	resp, err := s.loadOwned(ctx, userID, guestID, id)
+	if err != nil {
+		return nil, err
+	}
+	// Safety net for missed Stripe webhooks: if the order is still pending
+	// payment, ask the payments service to pull the current PI state from
+	// Stripe and apply any side effects, then reload. Reconcile failures
+	// don't fail the request — the caller still gets the (stale) order.
+	if resp.Order.Status == StatusPendingPayment && s.reconciler != nil {
+		if err := s.reconciler.Reconcile(ctx, id); err != nil {
+			log.Printf("orders: reconcile %s failed: %v", id, err)
+			return resp, nil
+		}
+		fresh, err := s.loadOwned(ctx, userID, guestID, id)
+		if err != nil {
+			return resp, nil
+		}
+		return fresh, nil
+	}
+	return resp, nil
+}
+
+func (s *service) loadOwned(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, id uuid.UUID) (*OrderResponse, error) {
 	row, items, addr, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -218,6 +259,30 @@ func (s *service) GetByID(ctx context.Context, userID *uuid.UUID, guestID *uuid.
 }
 
 func (s *service) ListMine(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error) {
+	list, err := s.listMineRaw(ctx, userID, guestID, status, from, to)
+	if err != nil {
+		return nil, err
+	}
+	if s.reconciler == nil {
+		return list, nil
+	}
+	// Reconcile every pending_payment order in the result against Stripe,
+	// in parallel with a small cap. After all reconciles complete, re-run
+	// the same list query so the user sees the fresh statuses.
+	pending := make([]uuid.UUID, 0, len(list))
+	for _, o := range list {
+		if o.Status == StatusPendingPayment {
+			pending = append(pending, o.ID)
+		}
+	}
+	if len(pending) == 0 {
+		return list, nil
+	}
+	s.reconcileMany(ctx, pending)
+	return s.listMineRaw(ctx, userID, guestID, status, from, to)
+}
+
+func (s *service) listMineRaw(ctx context.Context, userID, guestID *uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error) {
 	if userID != nil {
 		return s.repo.ListByUser(ctx, *userID, status, from, to)
 	}
@@ -225,6 +290,27 @@ func (s *service) ListMine(ctx context.Context, userID *uuid.UUID, guestID *uuid
 		return s.repo.ListByGuest(ctx, *guestID, status, from, to)
 	}
 	return nil, ErrNoOwner
+}
+
+// reconcileMany fans out reconcile calls with a small concurrency cap. Errors
+// are logged and otherwise ignored — the caller will requery the list either
+// way and the user sees whichever state the DB holds afterward.
+func (s *service) reconcileMany(ctx context.Context, ids []uuid.UUID) {
+	const maxParallel = 4
+	sem := make(chan struct{}, maxParallel)
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(id uuid.UUID) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := s.reconciler.Reconcile(ctx, id); err != nil {
+				log.Printf("orders: reconcile %s failed: %v", id, err)
+			}
+		}(id)
+	}
+	wg.Wait()
 }
 
 func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, id uuid.UUID) (*OrderResponse, error) {

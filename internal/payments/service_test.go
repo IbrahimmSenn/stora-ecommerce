@@ -257,6 +257,94 @@ func TestRefundOrder_PropagatesStripeError(t *testing.T) {
 	assert.Equal(t, StatusSucceeded, repo.byIntent["pi_x"].Status)
 }
 
+func TestReconcile_StripeSaysSucceeded_FlipsOrder(t *testing.T) {
+	orderID := uuid.New()
+	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 7300, nil)}
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_recon",
+		Status: StatusPending, AmountCents: 7300, Currency: "usd",
+	})
+	intents := &stubIntent{getStatus: map[string]IntentStatus{"pi_recon": {Status: "succeeded"}}}
+	events := &stubEvents{}
+	svc := newTestService(repo, ordersSvc, intents, events)
+
+	require.NoError(t, svc.Reconcile(context.Background(), orderID))
+
+	assert.Equal(t, []string{"pi_recon"}, intents.getCalls)
+	assert.Equal(t, StatusSucceeded, repo.byIntent["pi_recon"].Status)
+	assert.Equal(t, []string{orders.StatusPaid}, ordersSvc.statusCalls)
+	require.Len(t, events.succeeded, 1)
+	assert.Equal(t, orderID, events.succeeded[0].OrderID)
+	assert.Empty(t, events.failed)
+}
+
+func TestReconcile_StripeSaysCanceled_FlipsOrderToFailed(t *testing.T) {
+	orderID := uuid.New()
+	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 4200, nil)}
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_canc",
+		Status: StatusPending, AmountCents: 4200, Currency: "usd",
+	})
+	intents := &stubIntent{getStatus: map[string]IntentStatus{"pi_canc": {
+		Status:        "canceled",
+		LastErrorCode: "abandoned",
+		LastErrorMsg:  "intent canceled",
+	}}}
+	events := &stubEvents{}
+	svc := newTestService(repo, ordersSvc, intents, events)
+
+	require.NoError(t, svc.Reconcile(context.Background(), orderID))
+
+	assert.Equal(t, StatusFailed, repo.byIntent["pi_canc"].Status)
+	assert.Equal(t, []string{orders.StatusPaymentFailed}, ordersSvc.statusCalls)
+	require.Len(t, events.failed, 1)
+	assert.Equal(t, "abandoned", events.failed[0].FailureCode)
+}
+
+func TestReconcile_StripeStillProcessing_NoSideEffects(t *testing.T) {
+	orderID := uuid.New()
+	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 4200, nil)}
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_proc",
+		Status: StatusPending, AmountCents: 4200, Currency: "usd",
+	})
+	intents := &stubIntent{getStatus: map[string]IntentStatus{"pi_proc": {Status: "processing"}}}
+	events := &stubEvents{}
+	svc := newTestService(repo, ordersSvc, intents, events)
+
+	require.NoError(t, svc.Reconcile(context.Background(), orderID))
+
+	assert.Equal(t, StatusPending, repo.byIntent["pi_proc"].Status)
+	assert.Empty(t, ordersSvc.statusCalls)
+	assert.Empty(t, events.succeeded)
+	assert.Empty(t, events.failed)
+}
+
+func TestReconcile_AlreadyTerminal_SkipsStripe(t *testing.T) {
+	orderID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_term",
+		Status: StatusSucceeded, AmountCents: 4200, Currency: "usd",
+	})
+	intents := &stubIntent{}
+	svc := newTestService(repo, &stubOrders{}, intents, &stubEvents{})
+
+	require.NoError(t, svc.Reconcile(context.Background(), orderID))
+	assert.Empty(t, intents.getCalls, "should not call Stripe when payment is already terminal")
+}
+
+func TestReconcile_NoPaymentRow_NoOp(t *testing.T) {
+	intents := &stubIntent{}
+	svc := newTestService(newStubRepo(), &stubOrders{}, intents, &stubEvents{})
+
+	require.NoError(t, svc.Reconcile(context.Background(), uuid.New()))
+	assert.Empty(t, intents.getCalls)
+}
+
 func TestHandleEvent_UnhandledTypeIsNoop(t *testing.T) {
 	svc := newTestService(newStubRepo(), &stubOrders{}, &stubIntent{}, &stubEvents{}).(*service)
 
@@ -413,6 +501,12 @@ type stubIntent struct {
 	nextID     string
 	nextSecret string
 	calls      []stubIntentCall
+	// getStatus is the IntentStatus returned by GetIntent. Tests that exercise
+	// Reconcile populate this per-intent-id; unknown ids default to "processing"
+	// so reconcile is a no-op unless explicitly programmed.
+	getStatus map[string]IntentStatus
+	getErr    error
+	getCalls  []string
 }
 
 func (s *stubIntent) NewIntent(_ context.Context, amount int64, currency string, metadata map[string]string) (string, string, error) {
@@ -426,6 +520,17 @@ func (s *stubIntent) NewIntent(_ context.Context, amount int64, currency string,
 		secret = id + "_secret"
 	}
 	return id, secret, nil
+}
+
+func (s *stubIntent) GetIntent(_ context.Context, id string) (IntentStatus, error) {
+	s.getCalls = append(s.getCalls, id)
+	if s.getErr != nil {
+		return IntentStatus{}, s.getErr
+	}
+	if v, ok := s.getStatus[id]; ok {
+		return v, nil
+	}
+	return IntentStatus{Status: "processing"}, nil
 }
 
 type stubEvents struct {

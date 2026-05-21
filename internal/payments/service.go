@@ -20,6 +20,15 @@ import (
 // this so they don't need network access or real keys.
 type IntentClient interface {
 	NewIntent(ctx context.Context, amountCents int64, currency string, metadata map[string]string) (id, clientSecret string, err error)
+	GetIntent(ctx context.Context, id string) (IntentStatus, error)
+}
+
+// IntentStatus is the trimmed view of a Stripe PaymentIntent used by Reconcile.
+// Mirrors only the fields we read so SDK upgrades don't ripple into the service.
+type IntentStatus struct {
+	Status        string
+	LastErrorCode string
+	LastErrorMsg  string
 }
 
 // RefundClient wraps the Stripe SDK's refund call. Same reasoning as
@@ -72,10 +81,30 @@ func (stripeIntentClient) NewIntent(ctx context.Context, amount int64, currency 
 	return pi.ID, pi.ClientSecret, nil
 }
 
+func (stripeIntentClient) GetIntent(ctx context.Context, id string) (IntentStatus, error) {
+	params := &stripe.PaymentIntentParams{}
+	params.Context = ctx
+	pi, err := paymentintent.Get(id, params)
+	if err != nil {
+		return IntentStatus{}, fmt.Errorf("stripe paymentintent.Get: %w", err)
+	}
+	out := IntentStatus{Status: string(pi.Status)}
+	if pi.LastPaymentError != nil {
+		out.LastErrorCode = string(pi.LastPaymentError.Code)
+		out.LastErrorMsg = pi.LastPaymentError.Msg
+	}
+	return out, nil
+}
+
 type Service interface {
 	CreateIntent(ctx context.Context, userID, guestID *uuid.UUID, orderID uuid.UUID) (*CreateIntentResponse, error)
 	HandleWebhook(ctx context.Context, payload []byte, sigHeader string) error
 	RefundOrder(ctx context.Context, orderID uuid.UUID) error
+
+	// Reconcile pulls the current PaymentIntent state from Stripe and applies
+	// the same side effects as the corresponding webhook event. Safe to call
+	// when no webhook ever arrived; idempotent when one already did.
+	Reconcile(ctx context.Context, orderID uuid.UUID) error
 }
 
 type service struct {
@@ -191,26 +220,7 @@ func (s *service) onIntentSucceeded(ctx context.Context, raw json.RawMessage) er
 	if existing.Status == StatusSucceeded {
 		return nil
 	}
-
-	if err := s.repo.UpdateSucceeded(ctx, pi.ID); err != nil {
-		return err
-	}
-	if err := s.orders.MarkPaid(ctx, existing.OrderID); err != nil {
-		return err
-	}
-
-	evt := PaymentSucceededEvent{
-		OrderID:         existing.OrderID,
-		PaymentIntentID: pi.ID,
-		AmountCents:     existing.AmountCents,
-		Currency:        existing.Currency,
-	}
-	if err := s.events.PublishSucceeded(ctx, evt); err != nil {
-		// Don't block Stripe — log and move on. The DB state is correct;
-		// the email is best-effort and will be replayed if we add a redrive.
-		log.Printf("payments: publish succeeded event failed: %v", err)
-	}
-	return nil
+	return s.applySucceeded(ctx, existing)
 }
 
 func (s *service) onIntentFailed(ctx context.Context, raw json.RawMessage) error {
@@ -236,17 +246,45 @@ func (s *service) onIntentFailed(ctx context.Context, raw json.RawMessage) error
 		code = string(pi.LastPaymentError.Code)
 		message = pi.LastPaymentError.Msg
 	}
+	return s.applyFailed(ctx, existing, code, message)
+}
 
-	if err := s.repo.UpdateFailed(ctx, pi.ID, code, message); err != nil {
+// applySucceeded runs the side effects for a payment transitioning to
+// "succeeded": flip the payment row, mark the order paid, publish the event.
+// Caller is responsible for the idempotency check.
+func (s *service) applySucceeded(ctx context.Context, existing *Payment) error {
+	if err := s.repo.UpdateSucceeded(ctx, existing.StripePaymentIntentID); err != nil {
+		return err
+	}
+	if err := s.orders.MarkPaid(ctx, existing.OrderID); err != nil {
+		return err
+	}
+	evt := PaymentSucceededEvent{
+		OrderID:         existing.OrderID,
+		PaymentIntentID: existing.StripePaymentIntentID,
+		AmountCents:     existing.AmountCents,
+		Currency:        existing.Currency,
+	}
+	if err := s.events.PublishSucceeded(ctx, evt); err != nil {
+		// Don't block the caller — the DB state is correct; the email is
+		// best-effort and would be replayed by a redrive if we add one.
+		log.Printf("payments: publish succeeded event failed: %v", err)
+	}
+	return nil
+}
+
+// applyFailed runs the side effects for a payment transitioning to "failed".
+// Caller is responsible for the idempotency check.
+func (s *service) applyFailed(ctx context.Context, existing *Payment, code, message string) error {
+	if err := s.repo.UpdateFailed(ctx, existing.StripePaymentIntentID, code, message); err != nil {
 		return err
 	}
 	if err := s.orders.MarkPaymentFailed(ctx, existing.OrderID); err != nil {
 		return err
 	}
-
 	evt := PaymentFailedEvent{
 		OrderID:         existing.OrderID,
-		PaymentIntentID: pi.ID,
+		PaymentIntentID: existing.StripePaymentIntentID,
 		AmountCents:     existing.AmountCents,
 		Currency:        existing.Currency,
 		FailureCode:     code,
@@ -255,6 +293,44 @@ func (s *service) onIntentFailed(ctx context.Context, raw json.RawMessage) error
 	if err := s.events.PublishFailed(ctx, evt); err != nil {
 		log.Printf("payments: publish failed event failed: %v", err)
 	}
+	return nil
+}
+
+// Reconcile fetches the current PaymentIntent state from Stripe and applies
+// the matching side effects when the order's payment row is still pending.
+// This is the safety net for missed webhooks: if the user opens an order
+// that's stuck on pending_payment but Stripe says succeeded, this flips it.
+func (s *service) Reconcile(ctx context.Context, orderID uuid.UUID) error {
+	payment, err := s.repo.LatestForOrder(ctx, orderID)
+	if err != nil {
+		if errors.Is(err, ErrPaymentNotFound) {
+			return nil
+		}
+		return err
+	}
+	switch payment.Status {
+	case StatusSucceeded, StatusFailed, StatusRefunded, StatusCancelled:
+		return nil
+	}
+	intent, err := s.stripe.GetIntent(ctx, payment.StripePaymentIntentID)
+	if err != nil {
+		return fmt.Errorf("reconcile order %s: %w", orderID, err)
+	}
+	switch intent.Status {
+	case "succeeded":
+		return s.applySucceeded(ctx, payment)
+	case "canceled":
+		return s.applyFailed(ctx, payment, intent.LastErrorCode, intent.LastErrorMsg)
+	case "requires_payment_method":
+		// Stripe parks a PI here after a failed confirmation. Treat as failed
+		// only when there's an explicit error attached — otherwise the user
+		// just hasn't finished entering details and the order stays pending.
+		if intent.LastErrorCode != "" || intent.LastErrorMsg != "" {
+			return s.applyFailed(ctx, payment, intent.LastErrorCode, intent.LastErrorMsg)
+		}
+		return nil
+	}
+	// processing, requires_action, requires_confirmation, etc. — leave pending.
 	return nil
 }
 

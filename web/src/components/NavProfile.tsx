@@ -69,10 +69,17 @@ export function NavProfile() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={isAuthed ? `Account, ${email}` : 'Account'}
-        className={`inline-flex h-10 w-10 md:h-9 md:w-9 items-center justify-center transition-colors ${
-          open ? 'text-ink' : 'text-ink-soft hover:text-ink'
-        }`}
+        className={`inline-flex h-10 md:h-9 items-center justify-center gap-2 transition-colors ${
+          isAuthed && email
+            ? 'w-10 md:w-auto md:px-2'
+            : 'w-10 md:w-9'
+        } ${open ? 'text-ink' : 'text-ink-soft hover:text-ink'}`}
       >
+        {isAuthed && email && (
+          <span className="hidden md:inline text-xs max-w-[14rem] truncate">
+            {email}
+          </span>
+        )}
         <User size={18} strokeWidth={1.5} aria-hidden />
       </button>
 

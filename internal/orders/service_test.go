@@ -24,7 +24,7 @@ func newTestServiceWithRefunder(t *testing.T, repo *stubRepo, carts cart.Service
 	t.Helper()
 	enc, err := crypto.NewEncryptor(testHexKey)
 	require.NoError(t, err)
-	return NewService(repo, carts, enc, refunder)
+	return NewService(repo, carts, enc, refunder, nil)
 }
 
 type stubRefunder struct {

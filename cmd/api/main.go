@@ -120,16 +120,23 @@ func main() {
 	cartService := cart.NewService(cartRepo, productRepo)
 	cartHandler := cart.NewHandler(cartService)
 
-	// Break the orders ↔ payments import cycle: orders calls payments only
-	// for refunds, so we declare the variable here and let a closure adapter
-	// resolve it once payments is built below.
+	// Break the orders ↔ payments import cycle: orders calls payments for
+	// refunds and for reconciling stuck-pending orders against Stripe, so we
+	// declare the variable here and let closure adapters resolve it once
+	// payments is built below.
 	var paymentsService payments.Service
 	refunder := orders.RefunderFunc(func(ctx context.Context, orderID uuid.UUID) error {
 		return paymentsService.RefundOrder(ctx, orderID)
 	})
+	reconciler := orders.ReconcilerFunc(func(ctx context.Context, orderID uuid.UUID) error {
+		if paymentsService == nil {
+			return nil
+		}
+		return paymentsService.Reconcile(ctx, orderID)
+	})
 
 	ordersRepo := orders.NewRepository(db)
-	ordersService := orders.NewService(ordersRepo, cartService, encryptor, refunder)
+	ordersService := orders.NewService(ordersRepo, cartService, encryptor, refunder, reconciler)
 	ordersHandler := orders.NewHandler(ordersService)
 
 	paymentsRepo := payments.NewRepository(db, encryptor)
