@@ -16,11 +16,12 @@ import (
 )
 
 type Handler struct {
-	service Service
+	service      Service
+	cookieSecure bool
 }
 
-func NewHandler(service Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service Service, cookieSecure bool) *Handler {
+	return &Handler{service: service, cookieSecure: cookieSecure}
 }
 
 // GetCart handles GET /api/v1/cart
@@ -133,7 +134,7 @@ func (h *Handler) GetMergeStatus(w http.ResponseWriter, r *http.Request) {
 
 	// If nothing to resolve, or items were silently folded in, the cookie is stale.
 	if guestID != nil && (status.AutoMerged || !status.Conflict) {
-		clearGuestCookie(w)
+		h.clearGuestCookie(w)
 	}
 	response.JSON(w, http.StatusOK, status)
 }
@@ -168,7 +169,7 @@ func (h *Handler) PostMerge(w http.ResponseWriter, r *http.Request) {
 		h.handleError(w, err)
 		return
 	}
-	clearGuestCookie(w)
+	h.clearGuestCookie(w)
 	response.JSON(w, http.StatusOK, cart)
 }
 
@@ -196,12 +197,13 @@ func readGuestCookie(r *http.Request) *uuid.UUID {
 	return &id
 }
 
-func clearGuestCookie(w http.ResponseWriter) {
+func (h *Handler) clearGuestCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     mw.GuestSessionCookie,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   h.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})

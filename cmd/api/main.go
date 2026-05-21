@@ -106,7 +106,7 @@ func main() {
 		auth.WithBaseURL(cfg.BaseURL),
 		auth.WithBcryptCost(cfg.BcryptCost),
 	)
-	authHandler := auth.NewHandler(authService)
+	authHandler := auth.NewHandler(authService, cfg.CookieSecure)
 
 	brandRepo := brand.NewRepository(db)
 	brandService := brand.NewService(brandRepo)
@@ -125,7 +125,7 @@ func main() {
 
 	cartRepo := cart.NewRepository(db)
 	cartService := cart.NewService(cartRepo, productRepo, activityService)
-	cartHandler := cart.NewHandler(cartService)
+	cartHandler := cart.NewHandler(cartService, cfg.CookieSecure)
 
 	recommendService := recommend.NewService(activityService, productRepo)
 	recommendHandler := recommend.NewHandler(recommendService, cartService)
@@ -217,7 +217,7 @@ func main() {
 		)
 	}
 
-	oauthHandler := oauth.NewHandler(oauthService, providers, cfg.BaseURL)
+	oauthHandler := oauth.NewHandler(oauthService, providers, cfg.BaseURL, cfg.CookieSecure)
 
 	// --- Token validator for middleware ---
 	// Same idea as above — keeps middleware decoupled from auth.
@@ -295,7 +295,7 @@ func main() {
 	// --- Public catalog (no auth, but read owner so activity can log) ---
 	r.Group(func(r chi.Router) {
 		r.Use(mw.OptionalAuth(tokenValidator))
-		r.Use(mw.GuestSession)
+		r.Use(mw.GuestSession(cfg.CookieSecure))
 
 		r.Get("/api/v1/products", productHandler.Search)
 		r.Get("/api/v1/products/suggest", productHandler.Suggest)
@@ -309,7 +309,7 @@ func main() {
 	// --- Cart (works for both logged-in users and guests) ---
 	r.Group(func(r chi.Router) {
 		r.Use(mw.OptionalAuth(tokenValidator))
-		r.Use(mw.GuestSession)
+		r.Use(mw.GuestSession(cfg.CookieSecure))
 
 		r.Get("/api/v1/cart", cartHandler.GetCart)
 		r.Post("/api/v1/cart/items", cartHandler.AddItem)

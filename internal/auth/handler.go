@@ -23,34 +23,37 @@ const (
 	refreshCookieTTL  = 7 * 24 * 60 * 60 // 7 days in seconds, matches token.go
 )
 
-func setRefreshCookie(w http.ResponseWriter, token string) {
+type Handler struct {
+	service      AuthService
+	cookieSecure bool
+}
+
+func NewHandler(service AuthService, cookieSecure bool) *Handler {
+	return &Handler{service: service, cookieSecure: cookieSecure}
+}
+
+func (h *Handler) setRefreshCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    token,
 		Path:     refreshCookiePath,
 		HttpOnly: true,
+		Secure:   h.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   refreshCookieTTL,
 	})
 }
 
-func clearRefreshCookie(w http.ResponseWriter) {
+func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    "",
 		Path:     refreshCookiePath,
 		HttpOnly: true,
+		Secure:   h.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
-}
-
-type Handler struct {
-	service AuthService
-}
-
-func NewHandler(service AuthService) *Handler {
-	return &Handler{service: service}
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +85,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setRefreshCookie(w, resp.RefreshToken)
+	h.setRefreshCookie(w, resp.RefreshToken)
 	response.JSON(w, http.StatusOK, resp)
 }
 
@@ -115,16 +118,16 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
 		case errors.Is(err, ErrInvalidToken),
 			errors.Is(err, ErrTokenNotFound):
-			clearRefreshCookie(w)
+			h.clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "invalid refresh token")
 		case errors.Is(err, ErrTokenUsed):
-			clearRefreshCookie(w)
+			h.clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "refresh token already used — all sessions revoked")
 		case errors.Is(err, ErrTokenRevoked):
-			clearRefreshCookie(w)
+			h.clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "refresh token has been revoked")
 		case errors.Is(err, ErrExpiredToken):
-			clearRefreshCookie(w)
+			h.clearRefreshCookie(w)
 			response.Error(w, http.StatusUnauthorized, "refresh token has expired")
 		default:
 			response.Error(w, http.StatusInternalServerError, "internal server error")
@@ -132,7 +135,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setRefreshCookie(w, resp.RefreshToken)
+	h.setRefreshCookie(w, resp.RefreshToken)
 	response.JSON(w, http.StatusOK, resp)
 }
 
@@ -148,7 +151,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clearRefreshCookie(w)
+	h.clearRefreshCookie(w)
 	response.JSON(w, http.StatusOK, AuthMessageResponse{Message: "logged out successfully"})
 }
 

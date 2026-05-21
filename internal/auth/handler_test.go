@@ -32,7 +32,7 @@ func setupAuthTestRouter() (*Handler, *mockUserRepo, *mockAuthRepo) {
 	}
 
 	svc := NewService(userRepo, authRepo, testSecret)
-	handler := NewHandler(svc)
+	handler := NewHandler(svc, false)
 	return handler, userRepo, authRepo
 }
 

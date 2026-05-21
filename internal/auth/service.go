@@ -338,7 +338,10 @@ func (s *authService) Setup2FA(ctx context.Context, userID, email string) (*Setu
 	qrBase64 := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	// Generate recovery codes.
-	recoveryCodes := generateRecoveryCodes(8)
+	recoveryCodes, err := generateRecoveryCodes(8)
+	if err != nil {
+		return nil, fmt.Errorf("generate recovery codes: %w", err)
+	}
 
 	// Store in database (not enabled yet — user must verify first).
 	tfa := TwoFactorAuth{
@@ -439,12 +442,12 @@ func (s *authService) useRecoveryCode(ctx context.Context, userID string, tfa *T
 	return found
 }
 
-func generateRecoveryCodes(count int) []string {
+func generateRecoveryCodes(count int) ([]string, error) {
 	codes := make([]string, count)
 	for i := 0; i < count; i++ {
 		b := make([]byte, 5)
 		if _, err := rand.Read(b); err != nil {
-			panic("crypto/rand is unavailable: " + err.Error())
+			return nil, fmt.Errorf("generate recovery codes: %w", err)
 		}
 		code := fmt.Sprintf("%X", b)
 		// Format as XXXX-XXXX for readability.
@@ -453,5 +456,5 @@ func generateRecoveryCodes(count int) []string {
 		}
 		codes[i] = code
 	}
-	return codes
+	return codes, nil
 }

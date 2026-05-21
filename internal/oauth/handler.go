@@ -16,13 +16,19 @@ import (
 
 // Handler manages OAuth redirect and callback endpoints.
 type Handler struct {
-	service   Service
-	providers map[string]Provider
-	baseURL   string
+	service      Service
+	providers    map[string]Provider
+	baseURL      string
+	cookieSecure bool
 }
 
-func NewHandler(service Service, providers map[string]Provider, baseURL string) *Handler {
-	return &Handler{service: service, providers: providers, baseURL: baseURL}
+func NewHandler(service Service, providers map[string]Provider, baseURL string, cookieSecure bool) *Handler {
+	return &Handler{
+		service:      service,
+		providers:    providers,
+		baseURL:      baseURL,
+		cookieSecure: cookieSecure,
+	}
 }
 
 // Redirect sends the user to the OAuth provider's consent screen.
@@ -36,7 +42,12 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := generateState()
+	state, err := generateState()
+	if err != nil {
+		log.Printf("oauth state error [%s]: %v", providerName, err)
+		response.Error(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
 	url := provider.AuthURL(state)
 
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
@@ -81,6 +92,7 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		Value:    loginResp.RefreshToken,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
+		Secure:   h.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   7 * 24 * 60 * 60,
 	})
@@ -94,10 +106,10 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
-func generateState() string {
+func generateState() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand is unavailable: " + err.Error())
+		return "", fmt.Errorf("generate oauth state: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }

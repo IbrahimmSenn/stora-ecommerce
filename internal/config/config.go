@@ -42,6 +42,10 @@ type Config struct {
 
 	// RabbitMQ
 	RabbitMQURL string
+
+	// CookieSecure marks auth/session cookies with the Secure attribute so
+	// browsers only send them over HTTPS. Enabled when APP_ENV=production.
+	CookieSecure bool
 }
 
 func Load() (*Config, error) {
@@ -74,6 +78,8 @@ func Load() (*Config, error) {
 		StripePublishableKey: os.Getenv("STRIPE_PUBLISHABLE_KEY"),
 
 		RabbitMQURL: os.Getenv("RABBITMQ_URL"),
+
+		CookieSecure: os.Getenv("APP_ENV") == "production",
 	}
 
 	if cfg.DatabaseURL == "" {
