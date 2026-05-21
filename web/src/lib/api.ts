@@ -360,6 +360,8 @@ export const api = {
     request<CreateIntentResponse>(`/api/v1/orders/${orderId}/payment-intent`, {
       method: 'POST',
     }),
+  recommendations: (limit = 4) =>
+    request<{ items: ProductListItem[] }>(`/api/v1/recommendations?limit=${limit}`),
 }
 
 export function formatPrice(cents: number): string {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,6 +22,30 @@ type Repository interface {
 	AddImage(ctx context.Context, productID string, url string, isPrimary bool) (*ProductImage, error)
 	DeleteImage(ctx context.Context, productID string, imageID string) error
 	GetImages(ctx context.Context, productID string) ([]ProductImage, error)
+	// ListByIDs returns ProductListItems for the given ids, preserving the
+	// input order. Out-of-stock products are excluded. Used by the recommender
+	// to assemble its scored candidate slice into display-ready rows.
+	ListByIDs(ctx context.Context, productIDs []string) ([]ProductListItem, error)
+	// Candidates returns in-stock products excluding the given ids. Includes
+	// category_id and brand_id (needed for scoring) on top of the display row
+	// fields. Used by the recommender to build its candidate pool in one
+	// round-trip.
+	Candidates(ctx context.Context, excludeIDs []string, limit int) ([]Candidate, error)
+	// CategoryBrandFor returns the (category_id, brand_id) pair for each given
+	// product id. Used by the recommender to weight cart items' categories
+	// before scoring candidates. Unknown ids are silently dropped.
+	CategoryBrandFor(ctx context.Context, productIDs []string) (map[uuid.UUID]CategoryBrand, error)
+}
+
+type Candidate struct {
+	ProductListItem
+	CategoryID *uuid.UUID
+	BrandID    *uuid.UUID
+}
+
+type CategoryBrand struct {
+	CategoryID *uuid.UUID
+	BrandID    *uuid.UUID
 }
 
 type postgresRepository struct {
@@ -387,6 +412,139 @@ func (r *postgresRepository) DeleteImage(ctx context.Context, productID string, 
 		return ErrImageNotFound
 	}
 	return nil
+}
+
+// Candidates returns up to `limit` in-stock products that are not in
+// `excludeIDs`, ordered by most recently created. Includes the category and
+// brand ids the recommender needs for scoring.
+func (r *postgresRepository) Candidates(ctx context.Context, excludeIDs []string, limit int) ([]Candidate, error) {
+	if limit <= 0 {
+		return []Candidate{}, nil
+	}
+	if excludeIDs == nil {
+		excludeIDs = []string{}
+	}
+
+	query := `
+		SELECT
+			p.id, p.name, p.price, p.stock_quantity,
+			c.name AS category_name,
+			b.name AS brand_name,
+			COALESCE(AVG(rv.rating), 0) AS avg_rating,
+			COUNT(rv.id) AS review_count,
+			(SELECT pi.url FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
+			NULL::float8 AS relevance,
+			p.category_id, p.brand_id
+		FROM products p
+		LEFT JOIN categories c ON p.category_id = c.id
+		LEFT JOIN brands b ON p.brand_id = b.id
+		LEFT JOIN reviews rv ON rv.product_id = p.id
+		WHERE p.stock_quantity > 0
+			AND p.id <> ALL($1::uuid[])
+		GROUP BY p.id, c.name, b.name
+		ORDER BY p.created_at DESC
+		LIMIT $2`
+
+	rows, err := r.db.Query(ctx, query, excludeIDs, limit)
+	if err != nil {
+		return nil, fmt.Errorf("candidates: %w", err)
+	}
+	defer rows.Close()
+
+	out := []Candidate{}
+	for rows.Next() {
+		var c Candidate
+		if err := rows.Scan(
+			&c.ID, &c.Name, &c.Price, &c.StockQuantity,
+			&c.CategoryName, &c.BrandName,
+			&c.AvgRating, &c.ReviewCount,
+			&c.PrimaryImage, &c.Relevance,
+			&c.CategoryID, &c.BrandID,
+		); err != nil {
+			return nil, fmt.Errorf("scan candidate: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// CategoryBrandFor returns the (category_id, brand_id) pair for each given
+// product id. Unknown ids are silently dropped.
+func (r *postgresRepository) CategoryBrandFor(ctx context.Context, productIDs []string) (map[uuid.UUID]CategoryBrand, error) {
+	out := map[uuid.UUID]CategoryBrand{}
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.Query(ctx,
+		`SELECT id, category_id, brand_id FROM products WHERE id = ANY($1::uuid[])`,
+		productIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("category/brand lookup: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var cb CategoryBrand
+		if err := rows.Scan(&id, &cb.CategoryID, &cb.BrandID); err != nil {
+			return nil, fmt.Errorf("scan category/brand: %w", err)
+		}
+		out[id] = cb
+	}
+	return out, nil
+}
+
+// ListByIDs returns ProductListItems for the given ids, preserving the input
+// order and dropping anything out of stock. Used by the recommender to hydrate
+// its scored id slice into display rows in a single round-trip.
+func (r *postgresRepository) ListByIDs(ctx context.Context, productIDs []string) ([]ProductListItem, error) {
+	if len(productIDs) == 0 {
+		return []ProductListItem{}, nil
+	}
+
+	query := `
+		SELECT
+			p.id, p.name, p.price, p.stock_quantity,
+			c.name AS category_name,
+			b.name AS brand_name,
+			COALESCE(AVG(rv.rating), 0) AS avg_rating,
+			COUNT(rv.id) AS review_count,
+			(SELECT pi.url FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
+			NULL::float8 AS relevance
+		FROM products p
+		LEFT JOIN categories c ON p.category_id = c.id
+		LEFT JOIN brands b ON p.brand_id = b.id
+		LEFT JOIN reviews rv ON rv.product_id = p.id
+		WHERE p.id = ANY($1::uuid[]) AND p.stock_quantity > 0
+		GROUP BY p.id, c.name, b.name`
+
+	rows, err := r.db.Query(ctx, query, productIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list products by ids: %w", err)
+	}
+	defer rows.Close()
+
+	byID := make(map[string]ProductListItem, len(productIDs))
+	for rows.Next() {
+		var it ProductListItem
+		if err := rows.Scan(
+			&it.ID, &it.Name, &it.Price, &it.StockQuantity,
+			&it.CategoryName, &it.BrandName,
+			&it.AvgRating, &it.ReviewCount,
+			&it.PrimaryImage, &it.Relevance,
+		); err != nil {
+			return nil, fmt.Errorf("scan product: %w", err)
+		}
+		byID[it.ID.String()] = it
+	}
+
+	out := make([]ProductListItem, 0, len(productIDs))
+	for _, id := range productIDs {
+		if it, ok := byID[id]; ok {
+			out = append(out, it)
+		}
+	}
+	return out, nil
 }
 
 func (r *postgresRepository) GetImages(ctx context.Context, productID string) ([]ProductImage, error) {

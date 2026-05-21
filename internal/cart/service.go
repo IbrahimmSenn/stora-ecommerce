@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
@@ -23,13 +24,18 @@ type Service interface {
 type service struct {
 	repo     Repository
 	products product.Repository
+	activity activity.Logger
 	validate *validator.Validate
 }
 
-func NewService(repo Repository, products product.Repository) Service {
+func NewService(repo Repository, products product.Repository, logger activity.Logger) Service {
+	if logger == nil {
+		logger = activity.NoopLogger{}
+	}
 	return &service{
 		repo:     repo,
 		products: products,
+		activity: logger,
 		validate: validator.New(),
 	}
 }
@@ -82,6 +88,7 @@ func (s *service) AddItem(ctx context.Context, userID *uuid.UUID, guestSessionID
 	if _, err := s.repo.AddItem(ctx, c.ID, productID, req.Quantity); err != nil {
 		return nil, err
 	}
+	s.activity.LogAddToCart(ctx, userID, guestSessionID, &productID, p.CategoryID)
 	return s.buildResponse(ctx, c)
 }
 

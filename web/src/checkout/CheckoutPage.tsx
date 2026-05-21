@@ -28,19 +28,10 @@ import { Masthead } from '../components/Masthead'
 import { useTheme } from '../lib/theme'
 import { getStripe, stripeAppearance } from '../payment/stripe'
 import { mapPaymentError, mapStripeError } from '../payment/errors'
+import { validateCheckout } from './validate'
+import type { CheckoutFormState } from './validate'
 
-type FormState = {
-  email: string
-  phone: string
-  shipping_method: ShippingMethod
-  recipient_name: string
-  line1: string
-  line2: string
-  city: string
-  region: string
-  postal_code: string
-  country: string
-}
+type FormState = CheckoutFormState
 
 const SHIPPING_OPTIONS: { id: ShippingMethod; label: string; cents: number; eta: string }[] = [
   { id: 'standard', label: 'Standard', cents: 500, eta: '5–7 business days' },
@@ -149,11 +140,31 @@ export function CheckoutPage() {
 }
 
 function CheckoutInner() {
-  const { cart } = useCart()
+  const { cart, updateItem, removeItem } = useCart()
   const { email: authedEmail, isAuthed } = useAuth()
   const navigate = useNavigate()
   const stripe = useStripe()
   const elements = useElements()
+  const [lineBusy, setLineBusy] = useState<string | null>(null)
+  const [lineError, setLineError] = useState<string | null>(null)
+
+  async function adjust(productId: string, nextQty: number) {
+    setLineBusy(productId)
+    setLineError(null)
+    try {
+      if (nextQty <= 0) {
+        await removeItem(productId)
+      } else {
+        await updateItem(productId, nextQty)
+      }
+    } catch (e) {
+      setLineError(
+        e instanceof ApiError ? e.message : "Couldn't update the cart line.",
+      )
+    } finally {
+      setLineBusy(null)
+    }
+  }
 
   const [form, setForm] = useState<FormState>(initial)
   const [touched, setTouched] = useState<Partial<Record<keyof FormState, boolean>>>({})
@@ -182,7 +193,7 @@ function CheckoutInner() {
     elements.update({ amount: total })
   }, [elements, total])
 
-  const errors = useMemo(() => validate(form), [form])
+  const errors = useMemo(() => validateCheckout(form), [form])
   const isValid = Object.keys(errors).length === 0
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -500,21 +511,64 @@ function CheckoutInner() {
 
         <aside className="lg:sticky lg:top-8 lg:self-start">
           <p className="uc-tight text-[0.7rem] text-ink-faint mb-4">Summary</p>
+          {lineError && (
+            <p
+              role="alert"
+              className="mb-3 text-xs text-accent border-l-2 border-accent pl-2 py-1"
+            >
+              {lineError}
+            </p>
+          )}
           <ul className="divide-y divide-rule border-y border-rule">
-            {cart.items.map((it) => (
-              <li
-                key={it.id}
-                className="flex justify-between gap-4 py-3 text-sm"
-              >
-                <span className="flex-1 text-ink">
-                  {it.product_name}
-                  <span className="text-ink-faint"> × {it.quantity}</span>
-                </span>
-                <span className="tnum text-ink">
-                  {formatPrice(it.product_price * it.quantity)}
-                </span>
-              </li>
-            ))}
+            {cart.items.map((it) => {
+              const busy = lineBusy === it.product_id
+              return (
+                <li
+                  key={it.id}
+                  className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 py-3 text-sm"
+                >
+                  <span className="text-ink leading-snug min-w-0">
+                    {it.product_name}
+                  </span>
+                  <span className="tnum text-ink justify-self-end">
+                    {formatPrice(it.product_price * it.quantity)}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => adjust(it.product_id, it.quantity - 1)}
+                      disabled={busy || it.quantity <= 1}
+                      aria-label={`Decrease ${it.product_name}`}
+                      className="w-6 h-6 border border-rule-strong text-ink hover:border-ink hover:text-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      style={{ borderRadius: 0 }}
+                    >
+                      −
+                    </button>
+                    <span className="w-6 text-center tnum text-ink-soft text-xs">
+                      {it.quantity}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => adjust(it.product_id, it.quantity + 1)}
+                      disabled={busy || it.quantity >= it.stock}
+                      aria-label={`Increase ${it.product_name}`}
+                      className="w-6 h-6 border border-rule-strong text-ink hover:border-ink hover:text-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      style={{ borderRadius: 0 }}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => adjust(it.product_id, 0)}
+                    disabled={busy}
+                    className="text-[0.7rem] text-ink-faint hover:text-accent underline underline-offset-4 justify-self-end disabled:opacity-30 cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </li>
+              )
+            })}
           </ul>
           <dl className="mt-6 space-y-2 text-sm">
             <div className="flex justify-between">
@@ -596,32 +650,3 @@ function inputCls(error?: string) {
   }`
 }
 
-// Matches the server-side validator/v10 rules in
-// internal/orders/model.go — keep these in sync.
-function validate(f: FormState): Partial<Record<keyof FormState, string>> {
-  const e: Partial<Record<keyof FormState, string>> = {}
-  const email = f.email.trim()
-  if (!email) e.email = 'Required.'
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = 'Invalid email.'
-
-  if (f.phone.trim()) {
-    const p = f.phone.trim()
-    if (p.length < 7 || p.length > 20) e.phone = '7–20 characters.'
-  }
-
-  if (!f.recipient_name.trim()) e.recipient_name = 'Required.'
-  if (!f.line1.trim()) e.line1 = 'Required.'
-  if (!f.city.trim()) e.city = 'Required.'
-  if (!f.region.trim()) e.region = 'Required.'
-
-  const postal = f.postal_code.trim()
-  if (!postal) e.postal_code = 'Required.'
-  else if (postal.length < 3 || postal.length > 12)
-    e.postal_code = '3–12 characters.'
-
-  const country = f.country.trim()
-  if (!country) e.country = 'Required.'
-  else if (!/^[A-Za-z]{2}$/.test(country)) e.country = 'Two-letter code.'
-
-  return e
-}

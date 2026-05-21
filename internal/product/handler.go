@@ -9,16 +9,38 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
+	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 )
 
 type Handler struct {
-	service Service
+	service  Service
+	activity activity.Logger
 }
 
-func NewHandler(service Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service Service, logger activity.Logger) *Handler {
+	if logger == nil {
+		logger = activity.NoopLogger{}
+	}
+	return &Handler{service: service, activity: logger}
+}
+
+func resolveOwner(r *http.Request) (*uuid.UUID, *uuid.UUID) {
+	if raw, ok := r.Context().Value(ctxkey.UserID).(string); ok && raw != "" {
+		if uid, err := uuid.Parse(raw); err == nil {
+			return &uid, nil
+		}
+	}
+	if c, err := r.Cookie(mw.GuestSessionCookie); err == nil {
+		if gid, err := uuid.Parse(c.Value); err == nil {
+			return nil, &gid
+		}
+	}
+	return nil, nil
 }
 
 // Search handles GET /api/v1/products with query params for faceted search.
@@ -68,6 +90,10 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	if params.Query != "" {
+		userID, guestID := resolveOwner(r)
+		h.activity.LogSearch(r.Context(), userID, guestID, params.Query)
+	}
 	response.JSON(w, http.StatusOK, result)
 }
 
@@ -95,6 +121,8 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	userID, guestID := resolveOwner(r)
+	h.activity.LogView(r.Context(), userID, guestID, &p.ID, p.CategoryID)
 	response.JSON(w, http.StatusOK, p)
 }
 

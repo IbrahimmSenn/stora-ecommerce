@@ -12,7 +12,7 @@ import (
 
 func TestMergeStatus_NoGuestCookie(t *testing.T) {
 	repo := newStubRepo()
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 
 	status, err := svc.MergeStatus(context.Background(), uuid.New(), nil)
 	require.NoError(t, err)
@@ -25,7 +25,7 @@ func TestMergeStatus_EmptyGuestCart(t *testing.T) {
 	guestID := uuid.New()
 	repo.seedCart(Cart{ID: uuid.New(), GuestSessionID: &guestID})
 
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 	status, err := svc.MergeStatus(context.Background(), uuid.New(), &guestID)
 	require.NoError(t, err)
 	assert.False(t, status.Conflict)
@@ -43,7 +43,7 @@ func TestMergeStatus_AutoMergesWhenUserCartEmpty(t *testing.T) {
 		ID: uuid.New(), ProductID: productID, ProductPrice: 500, Quantity: 2, Stock: 10,
 	})
 
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 	userID := uuid.New()
 
 	status, err := svc.MergeStatus(context.Background(), userID, &guestID)
@@ -73,7 +73,7 @@ func TestMergeStatus_ConflictExposesBothCarts(t *testing.T) {
 	repo.seedCart(Cart{ID: userCartID, UserID: &userID})
 	repo.seedItem(userCartID, CartItemDetail{ID: uuid.New(), ProductID: productB, ProductPrice: 300, Quantity: 2, Stock: 10})
 
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 	status, err := svc.MergeStatus(context.Background(), userID, &guestID)
 	require.NoError(t, err)
 	assert.True(t, status.Conflict)
@@ -98,7 +98,7 @@ func TestMerge_GuestStrategy_DisjointItems(t *testing.T) {
 	repo.seedCart(Cart{ID: userCartID, UserID: &userID})
 	repo.seedItem(userCartID, CartItemDetail{ID: uuid.New(), ProductID: productB, ProductPrice: 300, Quantity: 2, Stock: 10})
 
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 	resp, err := svc.Merge(context.Background(), userID, guestID, MergeStrategyGuest)
 	require.NoError(t, err)
 	assert.Len(t, resp.Items, 2, "both products should survive the merge")
@@ -122,7 +122,7 @@ func TestMerge_GuestStrategy_SumsOverlappingAndCapsAtStock(t *testing.T) {
 	repo.seedCart(Cart{ID: userCartID, UserID: &userID})
 	repo.seedItem(userCartID, CartItemDetail{ID: uuid.New(), ProductID: productID, ProductPrice: 1000, Quantity: 3, Stock: 6})
 
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 	resp, err := svc.Merge(context.Background(), userID, guestID, MergeStrategyGuest)
 	require.NoError(t, err)
 	require.Len(t, resp.Items, 1)
@@ -144,7 +144,7 @@ func TestMerge_UserStrategy_DiscardsGuestCart(t *testing.T) {
 	repo.seedCart(Cart{ID: userCartID, UserID: &userID})
 	repo.seedItem(userCartID, CartItemDetail{ID: uuid.New(), ProductID: productB, ProductPrice: 300, Quantity: 2, Stock: 10})
 
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 	resp, err := svc.Merge(context.Background(), userID, guestID, MergeStrategyUser)
 	require.NoError(t, err)
 	require.Len(t, resp.Items, 1, "user cart should be untouched")
@@ -156,7 +156,7 @@ func TestMerge_UserStrategy_DiscardsGuestCart(t *testing.T) {
 
 func TestMerge_InvalidStrategy(t *testing.T) {
 	repo := newStubRepo()
-	svc := NewService(repo, &noopProductRepo{})
+	svc := NewService(repo, &noopProductRepo{}, nil)
 
 	_, err := svc.Merge(context.Background(), uuid.New(), uuid.New(), "nope")
 	assert.ErrorIs(t, err, ErrInvalidStrategy)
@@ -318,5 +318,14 @@ func (noopProductRepo) AddImage(context.Context, string, string, bool) (*product
 }
 func (noopProductRepo) DeleteImage(context.Context, string, string) error { return nil }
 func (noopProductRepo) GetImages(context.Context, string) ([]product.ProductImage, error) {
+	return nil, nil
+}
+func (noopProductRepo) ListByIDs(context.Context, []string) ([]product.ProductListItem, error) {
+	return nil, nil
+}
+func (noopProductRepo) Candidates(context.Context, []string, int) ([]product.Candidate, error) {
+	return nil, nil
+}
+func (noopProductRepo) CategoryBrandFor(context.Context, []string) (map[uuid.UUID]product.CategoryBrand, error) {
 	return nil, nil
 }

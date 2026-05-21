@@ -37,11 +37,21 @@ export function PaymentPage() {
         const o = await api.getOrder(id)
         if (cancelled) return
 
-        // If the order is already in a terminal state, the pay page makes no sense.
-        if (
-          o.order.status !== 'pending_payment' &&
-          o.order.status !== 'payment_failed'
-        ) {
+        // payment_failed orders have already had their stock released, so the
+        // retry-on-same-order flow is gone — send the shopper back to the cart
+        // with a message explaining what to do.
+        if (o.order.status === 'payment_failed') {
+          navigate('/cart', {
+            replace: true,
+            state: {
+              notice:
+                "Your previous payment didn't go through and we've released the reserved stock. Add the items again to try a new card.",
+            },
+          })
+          return
+        }
+
+        if (o.order.status !== 'pending_payment') {
           navigate(`/orders/${id}/confirmation`, { replace: true })
           return
         }

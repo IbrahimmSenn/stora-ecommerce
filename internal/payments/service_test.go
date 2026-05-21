@@ -89,6 +89,34 @@ func TestCreateIntent_PersistsRowAndThreadsMetadata(t *testing.T) {
 	assert.Equal(t, int64(2500), row.AmountCents)
 }
 
+// A second CreateIntent call for the same order must reuse the existing
+// pending PaymentIntent (and fetch its client_secret from Stripe) instead of
+// creating a duplicate. Without this guard a double-tap on "Pay" creates
+// orphan PIs and orphan payment rows.
+func TestCreateIntent_ReusesExistingPendingPayment(t *testing.T) {
+	owner := uuid.New()
+	orderID := uuid.New()
+	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 2500, &owner)}
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_existing",
+		Status: StatusPending, AmountCents: 2500, Currency: "usd",
+	})
+	intents := &stubIntent{
+		getStatus: map[string]IntentStatus{
+			"pi_existing": {Status: "requires_payment_method", ClientSecret: "pi_existing_secret"},
+		},
+	}
+	svc := newTestService(repo, ordersSvc, intents, &stubEvents{})
+
+	resp, err := svc.CreateIntent(context.Background(), &owner, nil, orderID)
+	require.NoError(t, err)
+	assert.Equal(t, "pi_existing", resp.PaymentIntentID, "should reuse existing intent")
+	assert.Equal(t, "pi_existing_secret", resp.ClientSecret)
+	assert.Empty(t, intents.calls, "must not create a new Stripe intent")
+	assert.Len(t, repo.byIntent, 1, "must not insert a duplicate payment row")
+}
+
 func TestHandleEvent_SucceededFlipsOrderAndPublishes(t *testing.T) {
 	orderID := uuid.New()
 	ordersSvc := &stubOrders{order: makeOrderResp(orderID, orders.StatusPendingPayment, 2500, nil)}

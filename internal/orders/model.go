@@ -89,7 +89,7 @@ type CheckoutAddressRequest struct {
 	City          string `json:"city" validate:"required,min=1,max=120"`
 	Region        string `json:"region" validate:"required,min=1,max=120"`
 	PostalCode    string `json:"postal_code" validate:"required,min=3,max=12"`
-	Country       string `json:"country" validate:"required,len=2,alpha"`
+	Country       string `json:"country" validate:"required,len=2,alpha,iso3166_1_alpha2"`
 }
 
 // orderRow is the encrypted form returned from the repository. Service

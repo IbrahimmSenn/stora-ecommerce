@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -170,6 +171,8 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
 			return
 		}
+		// Log the underlying reason; the client still sees the generic 500.
+		log.Printf("auth: forgot-password failed: %v", err)
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 		return
 	}

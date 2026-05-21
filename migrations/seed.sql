@@ -1,6 +1,6 @@
 -- Seed data — curated catalogue imported from escuelajs.co (one-shot).
 -- Auth users + brands preserved; categories + products + images replaced.
--- admin@shop.com / admin123  ·  customer@shop.com / customer123
+-- admin@shop.com / admin123  ·  customer@shop.com / customer123  ·  test3@test.com / test123
 
 -- Admin user
 INSERT INTO users (id, email, password_hash, role) VALUES
@@ -12,6 +12,12 @@ ON CONFLICT (email) DO NOTHING;
 INSERT INTO users (id, email, password_hash, role) VALUES
   ('c0000000-0000-0000-0000-000000000001', 'customer@shop.com',
    '$2b$10$/ieJ0h2MEnPkr/TH9zhvpOVZ01GS2biGBUNZ1JMspSmBiwUOhxgxG', 'customer')
+ON CONFLICT (email) DO NOTHING;
+
+-- Extra test account — handy for the Mailhog forgot-password demo.
+INSERT INTO users (id, email, password_hash, role) VALUES
+  ('c0000000-0000-0000-0000-000000000003', 'test3@test.com',
+   '$2b$10$Y9YIZzIkLNOoYRZ.oECeKOd0efN4Tpkzp.vRv7F3xNrTBB7ilgUZG', 'customer')
 ON CONFLICT (email) DO NOTHING;
 
 -- Brands (schema demo; imported products keep brand_id NULL since the source has no brand data)

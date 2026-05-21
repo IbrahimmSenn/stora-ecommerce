@@ -142,9 +142,34 @@ func (r *postgresRepository) AddItem(ctx context.Context, cartID, productID uuid
 	return &item, nil
 }
 
+// UpdateItemQuantity atomically re-checks stock under SELECT ... FOR UPDATE on
+// the product row, then writes the new quantity in the same transaction. Two
+// concurrent calls for the same product can no longer each pass a stale read
+// and write a combined quantity that exceeds stock.
 func (r *postgresRepository) UpdateItemQuantity(ctx context.Context, cartID, productID uuid.UUID, quantity int) (*CartItem, error) {
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var stock int
+	err = tx.QueryRow(ctx,
+		`SELECT stock_quantity FROM products WHERE id = $1 FOR UPDATE`,
+		productID,
+	).Scan(&stock)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrItemNotFound
+		}
+		return nil, fmt.Errorf("lock product for cart update: %w", err)
+	}
+	if stock < quantity {
+		return nil, ErrOutOfStock
+	}
+
 	var item CartItem
-	err := r.db.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`UPDATE cart_items SET quantity = $3
 		 WHERE cart_id = $1 AND product_id = $2
 		 RETURNING id, cart_id, product_id, quantity, created_at, updated_at`,
@@ -155,6 +180,10 @@ func (r *postgresRepository) UpdateItemQuantity(ctx context.Context, cartID, pro
 			return nil, ErrItemNotFound
 		}
 		return nil, fmt.Errorf("update cart item: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit cart update tx: %w", err)
 	}
 	return &item, nil
 }

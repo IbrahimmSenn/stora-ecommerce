@@ -5,7 +5,9 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stripe/stripe-go/v76"
 
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/brand"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
@@ -32,6 +35,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/payments"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/recommend"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
@@ -112,13 +116,19 @@ func main() {
 	categoryService := category.NewService(categoryRepo)
 	categoryHandler := category.NewHandler(categoryService)
 
+	activityRepo := activity.NewRepository(db)
+	activityService := activity.NewService(activityRepo)
+
 	productRepo := product.NewRepository(db)
 	productService := product.NewService(productRepo)
-	productHandler := product.NewHandler(productService)
+	productHandler := product.NewHandler(productService, activityService)
 
 	cartRepo := cart.NewRepository(db)
-	cartService := cart.NewService(cartRepo, productRepo)
+	cartService := cart.NewService(cartRepo, productRepo, activityService)
 	cartHandler := cart.NewHandler(cartService)
+
+	recommendService := recommend.NewService(activityService, productRepo)
+	recommendHandler := recommend.NewHandler(recommendService, cartService)
 
 	// Break the orders ↔ payments import cycle: orders calls payments for
 	// refunds and for reconciling stuck-pending orders against Stripe, so we
@@ -242,10 +252,9 @@ func main() {
 	}))
 
 	// --- Frontend (React SPA built into web/dist) ---
+	// Static assets and the SPA fallback share one handler below — see the
+	// NotFound block at the bottom of the router.
 	webDist := "web/dist"
-	webFS := http.FileServer(http.Dir(webDist))
-	r.Handle("/assets/*", webFS)
-	r.Get("/favicon.svg", webFS.ServeHTTP)
 
 	// Expose reCAPTCHA site key to frontend (public, non-secret)
 	r.Get("/api/v1/config/recaptcha", func(w http.ResponseWriter, r *http.Request) {
@@ -283,10 +292,15 @@ func main() {
 		r.Post("/api/v1/auth/2fa/disable", authHandler.Disable2FA)
 	})
 
-	// --- Public catalog (no auth) ---
-	r.Get("/api/v1/products", productHandler.Search)
-	r.Get("/api/v1/products/suggest", productHandler.Suggest)
-	r.Get("/api/v1/products/{id}", productHandler.GetByID)
+	// --- Public catalog (no auth, but read owner so activity can log) ---
+	r.Group(func(r chi.Router) {
+		r.Use(mw.OptionalAuth(tokenValidator))
+		r.Use(mw.GuestSession)
+
+		r.Get("/api/v1/products", productHandler.Search)
+		r.Get("/api/v1/products/suggest", productHandler.Suggest)
+		r.Get("/api/v1/products/{id}", productHandler.GetByID)
+	})
 	r.Get("/api/v1/categories", categoryHandler.ListTree)
 	r.Get("/api/v1/categories/{slug}", categoryHandler.GetBySlug)
 	r.Get("/api/v1/brands", brandHandler.List)
@@ -311,6 +325,9 @@ func main() {
 
 		// --- Payments (owner-checked) ---
 		r.Post("/api/v1/orders/{id}/payment-intent", paymentsHandler.CreateIntent)
+
+		// --- Recommendations (personalised from activity history + cart) ---
+		r.Get("/api/v1/recommendations", recommendHandler.Get)
 	})
 
 	// --- Stripe webhook (public; signature-verified inside the handler) ---
@@ -339,14 +356,21 @@ func main() {
 		r.Post("/api/v1/admin/brands", brandHandler.Create)
 	})
 
-	// --- SPA fallback: any unmatched non-API GET serves index.html so React
-	// Router can handle client-side routes. Must be registered last. ---
-	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+	// --- SPA fallback with static-file passthrough ---
+	// Any unmatched non-API path first tries to serve a real file from
+	// web/dist (Vite copies web/public/ there at build, so /products/foo.jpg
+	// resolves the same as it does in `vite dev`). If no file matches, hand
+	// the route to React Router via index.html. Registered last so explicit
+	// routes still win.
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		if strings.HasPrefix(req.URL.Path, "/api/") {
 			response.Error(w, http.StatusNotFound, "not found")
 			return
 		}
-		http.ServeFile(w, r, webDist+"/index.html")
+		if servedStatic(w, req, webDist) {
+			return
+		}
+		http.ServeFile(w, req, webDist+"/index.html")
 	})
 
 	srv := &http.Server{
@@ -385,4 +409,30 @@ func main() {
 	}
 
 	log.Println("server stopped")
+}
+
+// servedStatic returns true if req.URL.Path resolves to a regular file under
+// root. Used by the SPA fallback to serve real files (images, icons.svg, the
+// Vite-built /assets/*) before handing the route to React Router.
+//
+// Directory paths and anything that would resolve outside root (via "..") are
+// rejected — http.ServeFile would already block traversal, but failing early
+// keeps the logic obvious.
+func servedStatic(w http.ResponseWriter, req *http.Request, root string) bool {
+	path := req.URL.Path
+	if path == "" || path == "/" {
+		return false
+	}
+	clean := filepath.Clean("/" + path)
+	full := filepath.Join(root, clean)
+	rel, err := filepath.Rel(root, full)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	http.ServeFile(w, req, full)
+	return true
 }

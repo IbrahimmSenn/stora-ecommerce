@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stripe/stripe-go/v76"
@@ -16,6 +17,36 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 )
 
+// publishRetryBackoffs is the per-attempt delay when the broker is briefly
+// unreachable. Keeps the webhook handler bounded (under ~4s in the worst
+// case) so Stripe doesn't time out and replay the whole event.
+var publishRetryBackoffs = []time.Duration{
+	100 * time.Millisecond,
+	500 * time.Millisecond,
+	2 * time.Second,
+}
+
+// publishWithRetry invokes `do` with bounded backoff. The DB side effect is
+// already committed by the time we get here, so a final failure must be
+// surfaced loudly rather than failing the webhook (Stripe would replay it,
+// and our idempotency guard would just no-op the second time).
+func publishWithRetry(do func() error, label string) {
+	var err error
+	for i := 0; i <= len(publishRetryBackoffs); i++ {
+		err = do()
+		if err == nil {
+			if i > 0 {
+				log.Printf("payments: %s published after %d retries", label, i)
+			}
+			return
+		}
+		if i < len(publishRetryBackoffs) {
+			time.Sleep(publishRetryBackoffs[i])
+		}
+	}
+	log.Printf("payments: %s publish failed after %d attempts: %v — manual replay required", label, len(publishRetryBackoffs)+1, err)
+}
+
 // IntentClient is the slice of the Stripe SDK we actually call. Tests stub
 // this so they don't need network access or real keys.
 type IntentClient interface {
@@ -23,12 +54,14 @@ type IntentClient interface {
 	GetIntent(ctx context.Context, id string) (IntentStatus, error)
 }
 
-// IntentStatus is the trimmed view of a Stripe PaymentIntent used by Reconcile.
-// Mirrors only the fields we read so SDK upgrades don't ripple into the service.
+// IntentStatus is the trimmed view of a Stripe PaymentIntent used by Reconcile
+// and the idempotent CreateIntent path. Mirrors only the fields we read so SDK
+// upgrades don't ripple into the service.
 type IntentStatus struct {
 	Status        string
 	LastErrorCode string
 	LastErrorMsg  string
+	ClientSecret  string
 }
 
 // RefundClient wraps the Stripe SDK's refund call. Same reasoning as
@@ -88,7 +121,7 @@ func (stripeIntentClient) GetIntent(ctx context.Context, id string) (IntentStatu
 	if err != nil {
 		return IntentStatus{}, fmt.Errorf("stripe paymentintent.Get: %w", err)
 	}
-	out := IntentStatus{Status: string(pi.Status)}
+	out := IntentStatus{Status: string(pi.Status), ClientSecret: pi.ClientSecret}
 	if pi.LastPaymentError != nil {
 		out.LastErrorCode = string(pi.LastPaymentError.Code)
 		out.LastErrorMsg = pi.LastPaymentError.Msg
@@ -138,11 +171,30 @@ func (s *service) CreateIntent(ctx context.Context, userID, guestID *uuid.UUID, 
 		return nil, err
 	}
 
-	switch order.Order.Status {
-	case orders.StatusPendingPayment, orders.StatusPaymentFailed:
-		// allowed
-	default:
+	// Only orders that still hold reserved stock can be paid. payment_failed
+	// orders had their stock released by MarkPaymentFailed; retrying against
+	// the same order would charge the customer without anything to fulfil, so
+	// the caller has to start a fresh checkout.
+	if order.Order.Status != orders.StatusPendingPayment {
 		return nil, ErrInvalidOrderStatus
+	}
+
+	// Idempotency: if there's already a pending payment for this order (e.g.
+	// the user refreshed the pay page or double-tapped the button), reuse
+	// the same Stripe intent rather than creating a duplicate. We fetch the
+	// client_secret fresh from Stripe because we never persist it.
+	if existing, err := s.repo.LatestForOrder(ctx, order.Order.ID); err == nil && existing.Status == StatusPending {
+		intent, err := s.stripe.GetIntent(ctx, existing.StripePaymentIntentID)
+		if err == nil && intent.ClientSecret != "" && isReusableIntentStatus(intent.Status) {
+			return &CreateIntentResponse{
+				ClientSecret:    intent.ClientSecret,
+				PublishableKey:  s.publishableKey,
+				PaymentIntentID: existing.StripePaymentIntentID,
+			}, nil
+		}
+		// If the existing intent is in a non-reusable state (canceled, succeeded
+		// out-of-band) we fall through to create a new one. The orphan row stays
+		// in `pending` until Reconcile or a manual sweep tidies it.
 	}
 
 	intentID, clientSecret, err := s.stripe.NewIntent(ctx, order.Order.TotalCents, "usd", map[string]string{
@@ -169,6 +221,17 @@ func (s *service) CreateIntent(ctx context.Context, userID, guestID *uuid.UUID, 
 		PublishableKey:  s.publishableKey,
 		PaymentIntentID: intentID,
 	}, nil
+}
+
+// isReusableIntentStatus reports whether a Stripe PaymentIntent in this state
+// is safe to confirm again with a new card. Intents the user has just opened,
+// is mid-3DS, or has had a sync decline against are all reusable.
+func isReusableIntentStatus(s string) bool {
+	switch s {
+	case "requires_payment_method", "requires_confirmation", "requires_action", "processing":
+		return true
+	}
+	return false
 }
 
 func (s *service) HandleWebhook(ctx context.Context, payload []byte, sigHeader string) error {
@@ -265,11 +328,9 @@ func (s *service) applySucceeded(ctx context.Context, existing *Payment) error {
 		AmountCents:     existing.AmountCents,
 		Currency:        existing.Currency,
 	}
-	if err := s.events.PublishSucceeded(ctx, evt); err != nil {
-		// Don't block the caller — the DB state is correct; the email is
-		// best-effort and would be replayed by a redrive if we add one.
-		log.Printf("payments: publish succeeded event failed: %v", err)
-	}
+	publishWithRetry(func() error {
+		return s.events.PublishSucceeded(ctx, evt)
+	}, "payment.succeeded")
 	return nil
 }
 
@@ -290,9 +351,9 @@ func (s *service) applyFailed(ctx context.Context, existing *Payment, code, mess
 		FailureCode:     code,
 		FailureMessage:  message,
 	}
-	if err := s.events.PublishFailed(ctx, evt); err != nil {
-		log.Printf("payments: publish failed event failed: %v", err)
-	}
+	publishWithRetry(func() error {
+		return s.events.PublishFailed(ctx, evt)
+	}, "payment.failed")
 	return nil
 }
 

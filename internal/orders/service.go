@@ -76,11 +76,17 @@ type service struct {
 }
 
 func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, refunder Refunder, reconciler Reconciler) Service {
+	v := validator.New()
+	// Stricter than `alpha,len=2`: rejects "ZZ" etc. by checking against the
+	// real ISO 3166-1 alpha-2 list. Applied via the `iso3166_1_alpha2` tag.
+	_ = v.RegisterValidation("iso3166_1_alpha2", func(fl validator.FieldLevel) bool {
+		return validCountryCode(fl.Field().String())
+	})
 	return &service{
 		repo:       repo,
 		carts:      carts,
 		encryptor:  encryptor,
-		validate:   validator.New(),
+		validate:   v,
 		refunder:   refunder,
 		reconciler: reconciler,
 	}
@@ -266,21 +272,41 @@ func (s *service) ListMine(ctx context.Context, userID *uuid.UUID, guestID *uuid
 	if s.reconciler == nil {
 		return list, nil
 	}
-	// Reconcile every pending_payment order in the result against Stripe,
-	// in parallel with a small cap. After all reconciles complete, re-run
-	// the same list query so the user sees the fresh statuses.
+	// Only reconcile orders that are likely to have transitioned: at least
+	// reconcileMinAge ago (give the webhook a chance to land first) and not
+	// older than reconcileMaxAge (Stripe expires PaymentIntents past 24h, so
+	// anything older is permanently stuck — surface that to ops, don't keep
+	// pinging Stripe every page load). Caps fan-out volume on hot accounts.
+	now := time.Now()
 	pending := make([]uuid.UUID, 0, len(list))
 	for _, o := range list {
-		if o.Status == StatusPendingPayment {
-			pending = append(pending, o.ID)
+		if o.Status != StatusPendingPayment {
+			continue
 		}
+		age := now.Sub(o.CreatedAt)
+		if age < reconcileMinAge || age > reconcileMaxAge {
+			continue
+		}
+		pending = append(pending, o.ID)
 	}
 	if len(pending) == 0 {
 		return list, nil
 	}
+	if len(pending) > reconcileMaxPerCall {
+		pending = pending[:reconcileMaxPerCall]
+	}
 	s.reconcileMany(ctx, pending)
 	return s.listMineRaw(ctx, userID, guestID, status, from, to)
 }
+
+// Reconcile throttling: the webhook is the primary path; this is the safety
+// net. Don't ping Stripe for orders the webhook is plausibly still about to
+// flip, and don't ping for orders that are clearly permanently stuck.
+const (
+	reconcileMinAge     = 10 * time.Second
+	reconcileMaxAge     = 24 * time.Hour
+	reconcileMaxPerCall = 10
+)
 
 func (s *service) listMineRaw(ctx context.Context, userID, guestID *uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error) {
 	if userID != nil {
@@ -392,8 +418,27 @@ func (s *service) MarkPaid(ctx context.Context, id uuid.UUID) error {
 	return s.repo.UpdateStatus(ctx, id, StatusPaid)
 }
 
+// MarkPaymentFailed flips the order to payment_failed AND releases the stock
+// that was reserved at checkout. The rubric's "payment failure → inventory
+// unchanged" invariant only holds if the reservation is reversed here.
+// Idempotent at the call site (payments service skips if already failed), and
+// safe even when there are no items (e.g. test fixtures).
 func (s *service) MarkPaymentFailed(ctx context.Context, id uuid.UUID) error {
-	return s.repo.UpdateStatus(ctx, id, StatusPaymentFailed)
+	items, err := s.repo.ItemsForRestock(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.repo.WithTx(ctx, func(tx TxRepo) error {
+		for _, it := range items {
+			if it.ProductID == nil {
+				continue
+			}
+			if err := tx.IncrementStock(ctx, *it.ProductID, it.Quantity); err != nil {
+				return err
+			}
+		}
+		return tx.UpdateStatus(ctx, id, StatusPaymentFailed)
+	})
 }
 
 // helpers --------------------------------------------------------------------

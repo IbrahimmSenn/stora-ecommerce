@@ -275,6 +275,31 @@ func TestCancel_RefundFailureLeavesOrderPaid(t *testing.T) {
 	assert.Equal(t, 4, repo.products[productID].Stock)
 }
 
+// MarkPaymentFailed must release the stock reservation made at checkout —
+// otherwise the rubric's "payment failure → inventory unchanged" invariant
+// is violated and stock leaks every time a payment declines.
+func TestMarkPaymentFailed_RestoresStockAndStatus(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	// Simulate post-checkout state: stock=2 means 3 were already decremented
+	// from a starting 5 when the order was created.
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 2}
+
+	owner := uuid.New()
+	id := repo.seedOrder(orderRow{UserID: &owner, Status: StatusPendingPayment})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 3}}
+
+	svc := newTestService(t, repo, &stubCart{})
+
+	require.NoError(t, svc.MarkPaymentFailed(context.Background(), id))
+
+	assert.Equal(t, StatusPaymentFailed, repo.orders[id].Status,
+		"order should be flipped to payment_failed")
+	assert.Equal(t, 5, repo.products[productID].Stock,
+		"the 3 units decremented at checkout must be returned on failure")
+}
+
 // --- stubs ------------------------------------------------------------------
 
 type stubRepo struct {

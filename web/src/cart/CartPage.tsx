@@ -1,9 +1,21 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useCart } from './useCart'
 import { formatPrice } from '../lib/api'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { Button } from '../components/Button'
+import { RecommendationsRail } from './RecommendationsRail'
+
+function Notice({ text }: { text: string }) {
+  return (
+    <p
+      role="status"
+      className="mb-8 text-sm text-accent border-l-2 border-accent pl-3 py-1"
+    >
+      {text}
+    </p>
+  )
+}
 
 function QtyButton({
   onClick,
@@ -61,6 +73,11 @@ function Thumb({
 
 export function CartPage() {
   const { cart, loading, error, updateItem, removeItem, clear } = useCart()
+  const location = useLocation()
+  const notice =
+    typeof (location.state as { notice?: unknown } | null)?.notice === 'string'
+      ? ((location.state as { notice: string }).notice)
+      : null
 
   if (loading) {
     return (
@@ -89,6 +106,7 @@ export function CartPage() {
           title="Empty."
           caption="Nothing here yet. Browse the shop and add a few things."
         />
+        {notice && <Notice text={notice} />}
         <Link
           to="/"
           className="text-sm text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors"
@@ -113,6 +131,7 @@ export function CartPage() {
           </>
         }
       />
+      {notice && <Notice text={notice} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-x-16 gap-y-12">
         <ul className="divide-y divide-rule border-y border-rule">
@@ -201,6 +220,8 @@ export function CartPage() {
           </div>
         </aside>
       </div>
+
+      <RecommendationsRail cartVersion={cart.items.length} />
     </Page>
   )
 }

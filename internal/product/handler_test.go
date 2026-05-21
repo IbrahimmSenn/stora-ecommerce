@@ -117,12 +117,32 @@ func (m *mockProductRepo) GetImages(_ context.Context, productID string) ([]Prod
 	return imgs, nil
 }
 
+func (m *mockProductRepo) ListByIDs(_ context.Context, productIDs []string) ([]ProductListItem, error) {
+	out := []ProductListItem{}
+	for _, id := range productIDs {
+		if p, ok := m.products[id]; ok && p.StockQuantity > 0 {
+			out = append(out, ProductListItem{
+				ID: p.ID, Name: p.Name, Price: p.Price, StockQuantity: p.StockQuantity,
+			})
+		}
+	}
+	return out, nil
+}
+
+func (m *mockProductRepo) Candidates(_ context.Context, _ []string, _ int) ([]Candidate, error) {
+	return []Candidate{}, nil
+}
+
+func (m *mockProductRepo) CategoryBrandFor(_ context.Context, _ []string) (map[uuid.UUID]CategoryBrand, error) {
+	return map[uuid.UUID]CategoryBrand{}, nil
+}
+
 // --- Helpers ---
 
 func setupProductHandler() (*Handler, *mockProductRepo) {
 	repo := newMockProductRepo()
 	svc := NewService(repo)
-	h := NewHandler(svc)
+	h := NewHandler(svc, nil)
 	return h, repo
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -107,6 +108,18 @@ func (s *stubRepo) DeleteImage(_ context.Context, _ string, _ string) error {
 
 func (s *stubRepo) GetImages(_ context.Context, _ string) ([]ProductImage, error) {
 	return []ProductImage{}, nil
+}
+
+func (s *stubRepo) ListByIDs(_ context.Context, _ []string) ([]ProductListItem, error) {
+	return []ProductListItem{}, nil
+}
+
+func (s *stubRepo) Candidates(_ context.Context, _ []string, _ int) ([]Candidate, error) {
+	return []Candidate{}, nil
+}
+
+func (s *stubRepo) CategoryBrandFor(_ context.Context, _ []string) (map[uuid.UUID]CategoryBrand, error) {
+	return map[uuid.UUID]CategoryBrand{}, nil
 }
 
 func intPtr(i int) *int { return &i }
