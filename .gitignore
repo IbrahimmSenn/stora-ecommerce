@@ -8,3 +8,8 @@ web/dist
 *.log
 .DS_Store
 *:Zone.Identifier
+
+# Internal design / AI-tooling docs — kept locally, not for submission
+CLAUDE-sprint-addendum.md
+design_handoff_stora_design_system/
+docs/design-system/
