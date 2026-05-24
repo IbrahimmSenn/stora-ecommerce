@@ -68,7 +68,7 @@ Access tokens live **in memory only** — refreshing the tab clears authenticati
 
 ### Theming
 
-The design system lives in [web/src/styles/tokens.css](web/src/styles/tokens.css) and [web/src/index.css](web/src/index.css). Near-monochrome neutrals tinted toward an **oxblood** accent, all in OKLCH. Display face is **Bricolage Grotesque Variable**, body is **Hanken Grotesk Variable** — both self-hosted via `@fontsource-variable`. Light/dark choice persists in `localStorage`; the first load reads `prefers-color-scheme`. Motion (entrance reveals, cart panel slide, count pulse) collapses to instant when `prefers-reduced-motion: reduce` is set.
+Tokens in [web/src/styles/tokens.css](web/src/styles/tokens.css) — near-monochrome OKLCH neutrals tinted toward an **oxblood** accent. Display face **Bricolage Grotesque Variable**, body **Hanken Grotesk Variable**, both self-hosted via `@fontsource-variable`. Light/dark persists in `localStorage` (first load reads `prefers-color-scheme`); motion collapses to instant under `prefers-reduced-motion: reduce`.
 
 ## API Reference
 
@@ -95,6 +95,7 @@ The design system lives in [web/src/styles/tokens.css](web/src/styles/tokens.css
 | GET | `/api/v1/products/{id}` | Detail with images and reviews |
 | GET | `/api/v1/categories` / `/categories/{slug}` | Category tree / by slug |
 | GET | `/api/v1/brands` / `/brands/{id}` | Brands |
+| GET | `/api/v1/recommendations` | Personalised picks from activity + current cart contents |
 
 ### Cart, checkout, orders
 
@@ -118,7 +119,7 @@ Statuses: `pending_payment` → `paid` → `processing` → `shipped` → `deliv
 |---|---|---|
 | POST | `/api/v1/orders/{id}/payment-intent` | Owner-checked — lazily creates a Stripe PaymentIntent, persists a `payments` row, returns `client_secret` + `publishable_key`. Safe to call after `payment_failed`. |
 | POST | `/api/v1/webhooks/stripe` | Signature-verified. Handles `payment_intent.succeeded` and `payment_intent.payment_failed` — flips the order, persists payment metadata, publishes a JSON event to RabbitMQ. Idempotent. |
-| GET | `/api/v1/config/stripe` | Returns the publishable key for the frontend |
+| GET | `/api/v1/config/stripe` / `/config/recaptcha` | Publishable keys for the frontend |
 
 ### Admin (admin role required)
 
@@ -140,7 +141,89 @@ HTTP → Handler (decode/validate) → Service (business logic) → Repository (
                                                             ↘ Event Publisher → RabbitMQ → Notifications Consumer → Mailer → SMTP
 ```
 
-Each layer talks through Go interfaces, so each service has mock-based unit tests. Raw SQL via pgx — no ORM. Refunds avoid an `orders ↔ payments` import cycle by passing a `RefunderFunc` adapter wired in `cmd/api/main.go`. The Stripe webhook updates the database synchronously (the order is in `paid` before the webhook returns 200) and publishes the email as a side effect.
+Each layer talks through Go interfaces — services are mock-tested in isolation. Raw SQL via pgx, no ORM. A `RefunderFunc` adapter wired in `cmd/api/main.go` breaks the `orders ↔ payments` cycle. The Stripe webhook updates the database synchronously (order is `paid` before the webhook returns 200); the confirmation email is a side effect over RabbitMQ.
+
+### Data model
+
+Commerce tables added on top of the Project 1 identity + catalog schema. The encrypted columns (`*_encrypted`, `*_enc`) are AES-256-GCM bytea — see [PII encryption at rest](#pii-encryption-at-rest).
+
+```mermaid
+erDiagram
+    users {
+        UUID id PK
+    }
+    products {
+        UUID id PK
+    }
+
+    carts {
+        UUID id PK
+        UUID user_id FK "nullable, unique"
+        UUID guest_session_id "nullable, unique"
+    }
+    cart_items {
+        UUID id PK
+        UUID cart_id FK
+        UUID product_id FK
+        INT quantity
+    }
+    orders {
+        UUID id PK
+        VARCHAR order_number UK
+        UUID user_id FK "nullable"
+        UUID guest_session_id "nullable"
+        VARCHAR status "pending_payment..refunded"
+        BYTEA email_encrypted
+        BYTEA phone_encrypted
+        INT subtotal_cents
+        INT shipping_cents
+        INT total_cents
+        VARCHAR shipping_method
+    }
+    order_items {
+        UUID id PK
+        UUID order_id FK
+        UUID product_id FK "nullable"
+        VARCHAR product_name "snapshot"
+        INT unit_price_cents
+        INT quantity
+    }
+    shipping_addresses {
+        UUID id PK
+        UUID order_id FK,UK
+        BYTEA recipient_name_encrypted
+        BYTEA line1_encrypted
+        BYTEA line2_encrypted
+        BYTEA city_encrypted
+        BYTEA region_encrypted
+        BYTEA postal_code_encrypted
+        BYTEA country_encrypted
+    }
+    payments {
+        UUID id PK
+        UUID order_id FK
+        BYTEA stripe_payment_intent_id_enc
+        BYTEA stripe_payment_intent_id_hmac UK
+        BYTEA stripe_refund_id_enc
+        VARCHAR status "pending..refunded"
+        INT amount_cents
+        VARCHAR currency
+        BYTEA error_code_enc
+        BYTEA error_message_enc
+        TIMESTAMPTZ refunded_at
+    }
+
+    users ||--o| carts : "owns"
+    users ||--o{ orders : "places"
+    carts ||--o{ cart_items : "contains"
+    products ||--o{ cart_items : "appears in"
+    orders ||--o{ order_items : "lists"
+    products ||--o{ order_items : "snapshotted by"
+    orders ||--|| shipping_addresses : "ships to"
+    orders ||--o{ payments : "settled by"
+```
+
+Full schema including auth and catalog tables in [docs/erd.mmd](docs/erd.mmd).
 
 ### PII encryption at rest
 
@@ -154,8 +237,9 @@ docker exec -it $(docker ps -qf name=db) psql -U admin -d mystore -c \
 ## Testing
 
 ```bash
-make test        # full Go test suite
+make test                 # full Go test suite
 cd web && npm run build   # type-check + production build
+cd web && npm test        # Vitest frontend suite
 ```
 
 What's covered:
@@ -163,6 +247,7 @@ What's covered:
 - **Commerce services** — cart add/update/remove + merge strategies; orders checkout (rejects empty cart, stock-changed conflict, encrypted PII round-trip, ownership checks, cancel restocks, cancel-of-paid triggers refund, refund failure leaves status paid); payments (rejects non-payable status, persists intent, webhook flips + publishes event, idempotent on retries, bad signature rejected, refund is idempotent).
 - **Notifications consumer** — succeeded routes to confirmation body, failed includes reason + code, terminal errors on bad payloads, retry semantics.
 - **Identity / catalog (from Project 1)** — JWT, login/refresh/logout/2FA/password-reset, category tree, product CRUD, middleware enforcement, security (SQL injection, XSS, JWT tampering, oversized bodies, malformed JSON, negative-value injection).
+- **Frontend (Vitest + Testing Library)** — checkout form validation (required fields, email + phone + postal + country code, whitespace trimming) and the recommendations rail (loading, empty, render, error resilience).
 
 ### Concurrent payment guard
 
@@ -183,20 +268,23 @@ Optional (features degrade gracefully if absent): `GOOGLE_CLIENT_ID/SECRET`, `FB
 ```
 cmd/api/main.go         entrypoint, dependency wiring, graceful shutdown
 internal/
-  auth/                 login, refresh, 2FA, password reset
+  auth/  user/          login, refresh, 2FA, password reset, profile
   brand/  category/  product/   catalog (faceted search + admin CRUD)
   captcha/  oauth/      reCAPTCHA v3 + Google/Facebook OAuth
   cart/                 guest + persistent carts, merge
-  checkout/  orders/    single-page checkout, history, cancel + refund
+  orders/               single-page checkout, history, cancel + refund
   payments/             Stripe intents, webhook, refunder, event publisher
   notifications/        consumer that turns payment events into emails
   messaging/            RabbitMQ connection, publisher, consumer, topology
   mailer/               SMTP sender (Mailhog-compatible)
   crypto/               AES-256-GCM encryptor for order PII
+  activity/  recommend/ event log + cart-aware recommendation service
   middleware/           auth, admin role, optional auth, guest session
+  config/               env loading
   ctxkey/  response/    shared context keys + JSON response helpers
-migrations/             21 migrations + seed.sql
+migrations/             25 migrations + seed.sql
 web/                    React 19 + TypeScript + Vite + Tailwind v4 storefront
+docs/erd.mmd            full entity-relationship diagram
 Dockerfile              multi-stage: node → golang → alpine
 docker-compose.yml      full stack: db + migrate + seed + rabbitmq + mailhog + api
 Makefile                dev commands

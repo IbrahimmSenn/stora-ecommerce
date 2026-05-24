@@ -98,6 +98,89 @@ erDiagram
         TIMESTAMPTZ created_at
     }
 
+    carts {
+        UUID id PK
+        UUID user_id FK "nullable, unique"
+        UUID guest_session_id "nullable, unique"
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    cart_items {
+        UUID id PK
+        UUID cart_id FK
+        UUID product_id FK
+        INT quantity
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    orders {
+        UUID id PK
+        VARCHAR order_number UK
+        UUID user_id FK "nullable"
+        UUID guest_session_id "nullable"
+        VARCHAR status "pending_payment|paid|payment_failed|processing|shipped|delivered|cancelled|refunded"
+        BYTEA email_encrypted
+        BYTEA phone_encrypted "nullable"
+        INT subtotal_cents
+        INT shipping_cents
+        INT total_cents
+        VARCHAR shipping_method
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    order_items {
+        UUID id PK
+        UUID order_id FK
+        UUID product_id FK "nullable"
+        VARCHAR product_name "snapshot"
+        INT unit_price_cents
+        INT quantity
+        TIMESTAMPTZ created_at
+    }
+
+    shipping_addresses {
+        UUID id PK
+        UUID order_id FK,UK
+        BYTEA recipient_name_encrypted
+        BYTEA line1_encrypted
+        BYTEA line2_encrypted "nullable"
+        BYTEA city_encrypted
+        BYTEA region_encrypted
+        BYTEA postal_code_encrypted
+        BYTEA country_encrypted
+        TIMESTAMPTZ created_at
+    }
+
+    payments {
+        UUID id PK
+        UUID order_id FK
+        BYTEA stripe_payment_intent_id_enc
+        BYTEA stripe_payment_intent_id_hmac UK
+        BYTEA stripe_refund_id_enc "nullable"
+        VARCHAR status "pending|succeeded|failed|cancelled|refunded"
+        INT amount_cents
+        VARCHAR currency
+        BYTEA error_code_enc "nullable"
+        BYTEA error_message_enc "nullable"
+        TIMESTAMPTZ refunded_at "nullable"
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    user_activity {
+        BIGSERIAL id PK
+        UUID user_id FK "nullable"
+        UUID guest_session_id "nullable"
+        TEXT event_type "view|search|add_to_cart|purchase"
+        UUID product_id FK "nullable"
+        UUID category_id FK "nullable"
+        TEXT search_query "nullable"
+        TIMESTAMPTZ occurred_at
+    }
+
     users ||--o{ refresh_tokens : "has"
     users ||--o{ oauth_accounts : "links"
     users ||--o{ password_reset_tokens : "requests"
@@ -110,3 +193,15 @@ erDiagram
 
     products ||--o{ product_images : "has"
     products ||--o{ reviews : "receives"
+
+    users ||--o| carts : "owns"
+    users ||--o{ orders : "places"
+    carts ||--o{ cart_items : "contains"
+    products ||--o{ cart_items : "appears in"
+    orders ||--o{ order_items : "lists"
+    products ||--o{ order_items : "snapshotted by"
+    orders ||--|| shipping_addresses : "ships to"
+    orders ||--o{ payments : "settled by"
+    users ||--o{ user_activity : "performs"
+    products ||--o{ user_activity : "subject of"
+    categories ||--o{ user_activity : "subject of"
