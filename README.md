@@ -249,6 +249,15 @@ What's covered:
 - **Identity / catalog (from Project 1)** — JWT, login/refresh/logout/2FA/password-reset, category tree, product CRUD, middleware enforcement, security (SQL injection, XSS, JWT tampering, oversized bodies, malformed JSON, negative-value injection).
 - **Frontend (Vitest + Testing Library)** — checkout form validation (required fields, email + phone + postal + country code, whitespace trimming) and the recommendations rail (loading, empty, render, error resilience).
 
+### Manual testing with hot reload
+
+```bash
+make up                    # backend stack on :8080
+cd web && npm run dev      # Vite dev server on :5173
+```
+
+Open [http://localhost:5173](http://localhost:5173). The Vite server proxies `/api/*` to the Go API on `:8080`, so backend calls work unchanged while the frontend hot-reloads on file edits.
+
 ### Concurrent payment guard
 
 With one unit in stock, open two sessions and check the same product out in parallel — the second checkout fails with `409 stock or price changed while you were checking out`. `SELECT ... FOR UPDATE` on every cart line serialises the stock decrement.
