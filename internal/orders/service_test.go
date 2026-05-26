@@ -17,14 +17,25 @@ import (
 const testHexKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func newTestService(t *testing.T, repo *stubRepo, carts cart.Service) Service {
-	return newTestServiceWithRefunder(t, repo, carts, nil)
+	return newTestServiceWithDeps(t, repo, carts, nil, nil)
 }
 
 func newTestServiceWithRefunder(t *testing.T, repo *stubRepo, carts cart.Service, refunder Refunder) Service {
+	return newTestServiceWithDeps(t, repo, carts, refunder, nil)
+}
+
+func newTestServiceWithGeocoder(t *testing.T, repo *stubRepo, carts cart.Service, geocoder Geocoder) Service {
+	return newTestServiceWithDeps(t, repo, carts, nil, geocoder)
+}
+
+func newTestServiceWithDeps(t *testing.T, repo *stubRepo, carts cart.Service, refunder Refunder, geocoder Geocoder) Service {
 	t.Helper()
 	enc, err := crypto.NewEncryptor(testHexKey)
 	require.NoError(t, err)
-	return NewService(repo, carts, enc, refunder, nil)
+	if geocoder == nil {
+		geocoder = PassthroughGeocoder{}
+	}
+	return NewService(repo, carts, enc, geocoder, refunder, nil)
 }
 
 type stubRefunder struct {
@@ -34,6 +45,16 @@ type stubRefunder struct {
 
 func (s *stubRefunder) RefundOrder(_ context.Context, orderID uuid.UUID) error {
 	s.calls = append(s.calls, orderID)
+	return s.err
+}
+
+type stubGeocoder struct {
+	err   error
+	calls int
+}
+
+func (s *stubGeocoder) VerifyAddress(_ context.Context, _ CheckoutAddressRequest) error {
+	s.calls++
 	return s.err
 }
 
@@ -298,6 +319,96 @@ func TestMarkPaymentFailed_RestoresStockAndStatus(t *testing.T) {
 		"order should be flipped to payment_failed")
 	assert.Equal(t, 5, repo.products[productID].Stock,
 		"the 3 units decremented at checkout must be returned on failure")
+}
+
+// --- Address verification ---------------------------------------------------
+
+func TestCheckout_AddressUnverifiedBlocksOrder(t *testing.T) {
+	productID := uuid.New()
+	repo := newStubRepo()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 5}
+
+	carts := &stubCart{
+		cartID: uuid.New(),
+		items: []cart.CartItemDetail{{
+			ID: uuid.New(), ProductID: productID, ProductPrice: 1000, Quantity: 1, Stock: 5,
+		}},
+	}
+	geo := &stubGeocoder{err: ErrAddressNotVerifiable}
+	svc := newTestServiceWithGeocoder(t, repo, carts, geo)
+
+	uid := uuid.New()
+	_, err := svc.Checkout(context.Background(), &uid, nil, validRequest())
+	assert.ErrorIs(t, err, ErrAddressNotVerifiable)
+	assert.Equal(t, 1, geo.calls)
+	assert.Empty(t, repo.orders, "no order should be created when verification fails")
+	assert.Equal(t, 5, repo.products[productID].Stock, "stock must not be touched")
+}
+
+func TestCheckout_AddressOverrideAllowsThrough(t *testing.T) {
+	productID := uuid.New()
+	repo := newStubRepo()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 5}
+
+	carts := &stubCart{
+		cartID: uuid.New(),
+		items: []cart.CartItemDetail{{
+			ID: uuid.New(), ProductID: productID, ProductPrice: 1000, Quantity: 1, Stock: 5,
+		}},
+	}
+	geo := &stubGeocoder{err: ErrAddressNotVerifiable}
+	svc := newTestServiceWithGeocoder(t, repo, carts, geo)
+
+	req := validRequest()
+	req.AddressOverride = true
+	uid := uuid.New()
+	resp, err := svc.Checkout(context.Background(), &uid, nil, req)
+	require.NoError(t, err)
+	assert.NotEqual(t, uuid.Nil, resp.Order.ID, "override should permit the order")
+	assert.Equal(t, 1, geo.calls)
+	assert.Equal(t, 4, repo.products[productID].Stock, "stock decrements once the order is placed")
+}
+
+func TestCheckout_VerificationUnavailableBlocksWithoutOverride(t *testing.T) {
+	productID := uuid.New()
+	repo := newStubRepo()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 5}
+
+	carts := &stubCart{
+		cartID: uuid.New(),
+		items: []cart.CartItemDetail{{
+			ID: uuid.New(), ProductID: productID, ProductPrice: 1000, Quantity: 1, Stock: 5,
+		}},
+	}
+	geo := &stubGeocoder{err: ErrAddressVerificationUnavailable}
+	svc := newTestServiceWithGeocoder(t, repo, carts, geo)
+
+	uid := uuid.New()
+	_, err := svc.Checkout(context.Background(), &uid, nil, validRequest())
+	assert.ErrorIs(t, err, ErrAddressVerificationUnavailable)
+	assert.Empty(t, repo.orders, "transient verification failure must fail-closed")
+}
+
+func TestCheckout_VerificationUnavailableWithOverridePlacesOrder(t *testing.T) {
+	productID := uuid.New()
+	repo := newStubRepo()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 5}
+
+	carts := &stubCart{
+		cartID: uuid.New(),
+		items: []cart.CartItemDetail{{
+			ID: uuid.New(), ProductID: productID, ProductPrice: 1000, Quantity: 1, Stock: 5,
+		}},
+	}
+	geo := &stubGeocoder{err: ErrAddressVerificationUnavailable}
+	svc := newTestServiceWithGeocoder(t, repo, carts, geo)
+
+	req := validRequest()
+	req.AddressOverride = true
+	uid := uuid.New()
+	resp, err := svc.Checkout(context.Background(), &uid, nil, req)
+	require.NoError(t, err)
+	assert.NotEqual(t, uuid.Nil, resp.Order.ID)
 }
 
 // --- stubs ------------------------------------------------------------------

@@ -170,6 +170,12 @@ function CheckoutInner() {
   const [touched, setTouched] = useState<Partial<Record<keyof FormState, boolean>>>({})
   const [submitting, setSubmitting] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
+  // When the server reports an address-verification problem (422
+  // address_unverified or 503 address_verification_unavailable) we offer an
+  // explicit "use anyway" button. Keeping this in state — rather than
+  // reading the last ApiError — means the button persists if the user
+  // re-focuses a field, and clears the moment they hit submit again.
+  const [addressVerificationFailed, setAddressVerificationFailed] = useState(false)
   const [prefilledEmail, setPrefilledEmail] = useState(false)
 
   useEffect(() => {
@@ -206,17 +212,9 @@ function CheckoutInner() {
     return touched[key] ? errors[key] : undefined
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setServerError(null)
+  async function submitOrder(addressOverride: boolean) {
     if (!stripe || !elements) {
       setServerError('Payment is still loading. Try again in a moment.')
-      return
-    }
-    if (!isValid) {
-      const all: Partial<Record<keyof FormState, boolean>> = {}
-      ;(Object.keys(form) as (keyof FormState)[]).forEach((k) => (all[k] = true))
-      setTouched(all)
       return
     }
     if (!cart || cart.items.length === 0) {
@@ -225,13 +223,18 @@ function CheckoutInner() {
     }
 
     setSubmitting(true)
+    setServerError(null)
     try {
       // 1. Validate Stripe inputs locally before creating the order. This
       //    prevents a stuck pending_payment order on basic card-format errors.
-      const submission = await elements.submit()
-      if (submission.error) {
-        setServerError(mapStripeError(submission.error))
-        return
+      //    Skip on the override retry — elements.submit() can only be called
+      //    once per state without a form change.
+      if (!addressOverride) {
+        const submission = await elements.submit()
+        if (submission.error) {
+          setServerError(mapStripeError(submission.error))
+          return
+        }
       }
 
       // 2. Create the order — reserves stock, returns the order_id.
@@ -248,8 +251,10 @@ function CheckoutInner() {
           postal_code: form.postal_code.trim(),
           country: form.country.trim().toUpperCase(),
         },
+        address_override: addressOverride || undefined,
       }
       const orderResp = await api.checkout(body)
+      setAddressVerificationFailed(false)
 
       // 3. Create the PaymentIntent for the new order.
       const intent = await api.createPaymentIntent(orderResp.order.id)
@@ -273,10 +278,29 @@ function CheckoutInner() {
         })
       }
     } catch (e) {
+      if (
+        e instanceof ApiError &&
+        (e.code === 'address_unverified' ||
+          e.code === 'address_verification_unavailable')
+      ) {
+        setAddressVerificationFailed(true)
+      }
       setServerError(mapPaymentError(e))
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setAddressVerificationFailed(false)
+    if (!isValid) {
+      const all: Partial<Record<keyof FormState, boolean>> = {}
+      ;(Object.keys(form) as (keyof FormState)[]).forEach((k) => (all[k] = true))
+      setTouched(all)
+      return
+    }
+    await submitOrder(false)
   }
 
   if (!cart || cart.items.length === 0) return null
@@ -299,12 +323,22 @@ function CheckoutInner() {
           )}
 
           {serverError && (
-            <p
+            <div
               role="alert"
               className="mb-8 text-sm text-accent border-l-2 border-accent pl-3 py-1"
             >
-              {serverError}
-            </p>
+              <p>{serverError}</p>
+              {addressVerificationFailed && (
+                <button
+                  type="button"
+                  onClick={() => submitOrder(true)}
+                  disabled={submitting}
+                  className="mt-2 text-xs text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  Use this address anyway
+                </button>
+              )}
+            </div>
           )}
 
           <Section number="01" title="Contact">

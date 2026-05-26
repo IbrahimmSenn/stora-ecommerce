@@ -9,9 +9,13 @@ export function setAccessToken(t: string | null) {
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** Optional stable error code from the server. Frontends should branch on
+   *  this rather than string-matching `message`. */
+  code?: string
+  constructor(status: number, message: string, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
@@ -50,14 +54,14 @@ export async function request<T>(path: string, opts: Options = {}): Promise<T> {
   const data: unknown = text ? JSON.parse(text) : null
 
   if (!res.ok) {
+    const obj =
+      data && typeof data === 'object' ? (data as Record<string, unknown>) : null
     const msg =
-      data &&
-      typeof data === 'object' &&
-      'error' in data &&
-      typeof (data as { error: unknown }).error === 'string'
-        ? (data as { error: string }).error
+      obj && typeof obj.error === 'string'
+        ? (obj.error as string)
         : `request failed (${res.status})`
-    throw new ApiError(res.status, msg)
+    const code = obj && typeof obj.code === 'string' ? (obj.code as string) : undefined
+    throw new ApiError(res.status, msg, code)
   }
   return data as T
 }
@@ -189,6 +193,9 @@ export type CheckoutRequest = {
   phone?: string
   shipping_method: ShippingMethod
   address: CheckoutAddress
+  /** Set when the user has already seen an address-verification failure and
+   *  chose "Use this address anyway". */
+  address_override?: boolean
 }
 
 export type Order = {

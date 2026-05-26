@@ -151,6 +151,12 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 		response.Error(w, http.StatusUnprocessableEntity, "invalid shipping method (use 'standard' or 'express')")
 	case errors.Is(err, ErrRefundUnavailable):
 		response.Error(w, http.StatusServiceUnavailable, "refunds are temporarily unavailable — please try again shortly")
+	case errors.Is(err, ErrAddressNotVerifiable):
+		response.ErrorWithCode(w, http.StatusUnprocessableEntity, errorCodeFor(err),
+			"We could not verify this shipping address. Please double-check the street, city, and postal code, or choose to use it anyway.")
+	case errors.Is(err, ErrAddressVerificationUnavailable):
+		response.ErrorWithCode(w, http.StatusServiceUnavailable, errorCodeFor(err),
+			"Address verification is temporarily unavailable. You may retry, or place the order without verification.")
 	default:
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 	}

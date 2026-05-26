@@ -74,12 +74,17 @@ type OrderSummary struct {
 }
 
 // CheckoutRequest is the body for POST /api/v1/checkout.
-// All address fields are validated format-only (no third-party lookup).
+//
+// Addresses are validated for format (length, ISO country) and then for
+// deliverability via the injected Geocoder. AddressOverride lets the user
+// proceed past a verification failure — the frontend only exposes it after
+// the first rejection, so it's a deliberate choice, not a hidden bypass.
 type CheckoutRequest struct {
-	Email          string                 `json:"email" validate:"required,email"`
-	Phone          string                 `json:"phone" validate:"omitempty,min=7,max=20"`
-	ShippingMethod string                 `json:"shipping_method" validate:"required,oneof=standard express"`
-	Address        CheckoutAddressRequest `json:"address" validate:"required"`
+	Email           string                 `json:"email" validate:"required,email"`
+	Phone           string                 `json:"phone" validate:"omitempty,min=7,max=20"`
+	ShippingMethod  string                 `json:"shipping_method" validate:"required,oneof=standard express"`
+	Address         CheckoutAddressRequest `json:"address" validate:"required"`
+	AddressOverride bool                   `json:"address_override"`
 }
 
 type CheckoutAddressRequest struct {

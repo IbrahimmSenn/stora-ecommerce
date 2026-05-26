@@ -71,22 +71,27 @@ type service struct {
 	carts      cart.Service
 	encryptor  *crypto.Encryptor
 	validate   *validator.Validate
+	geocoder   Geocoder
 	refunder   Refunder
 	reconciler Reconciler
 }
 
-func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, refunder Refunder, reconciler Reconciler) Service {
+func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, geocoder Geocoder, refunder Refunder, reconciler Reconciler) Service {
 	v := validator.New()
 	// Stricter than `alpha,len=2`: rejects "ZZ" etc. by checking against the
 	// real ISO 3166-1 alpha-2 list. Applied via the `iso3166_1_alpha2` tag.
 	_ = v.RegisterValidation("iso3166_1_alpha2", func(fl validator.FieldLevel) bool {
 		return validCountryCode(fl.Field().String())
 	})
+	if geocoder == nil {
+		geocoder = PassthroughGeocoder{}
+	}
 	return &service{
 		repo:       repo,
 		carts:      carts,
 		encryptor:  encryptor,
 		validate:   v,
+		geocoder:   geocoder,
 		refunder:   refunder,
 		reconciler: reconciler,
 	}
@@ -101,6 +106,17 @@ func (s *service) Checkout(ctx context.Context, userID *uuid.UUID, guestID *uuid
 	req.Address.Country = strings.ToUpper(strings.TrimSpace(req.Address.Country))
 	if err := s.validate.Struct(req); err != nil {
 		return nil, err
+	}
+
+	// Address verification. Fail-closed by default; AddressOverride lets the
+	// user proceed after seeing the rejection (frontend only renders that
+	// button after a first failure). Both outcomes are logged so a reviewer
+	// or audit can see when the override was used.
+	if geocodeErr := s.geocoder.VerifyAddress(ctx, req.Address); geocodeErr != nil {
+		if !req.AddressOverride {
+			return nil, geocodeErr
+		}
+		log.Printf("orders: address override used: %v", geocodeErr)
 	}
 
 	shippingCents, ok := shippingRates[req.ShippingMethod]

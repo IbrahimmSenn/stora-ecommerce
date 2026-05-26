@@ -11,4 +11,12 @@ var (
 	ErrNoOwner           = errors.New("checkout requires a logged-in user or a guest session")
 	ErrInvalidShipping   = errors.New("invalid shipping method")
 	ErrRefundUnavailable = errors.New("refund processor is not configured")
+
+	// Address verification.
+	// ErrAddressNotVerifiable: the geocoder returned no match for the address.
+	// ErrAddressVerificationUnavailable: the geocoder itself failed (network,
+	// 5xx, rate limit). Distinct so the handler can offer an override flow
+	// without blaming the user for a third-party outage.
+	ErrAddressNotVerifiable           = errors.New("address could not be verified")
+	ErrAddressVerificationUnavailable = errors.New("address verification unavailable")
 )

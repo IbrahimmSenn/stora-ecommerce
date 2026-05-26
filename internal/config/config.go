@@ -43,6 +43,12 @@ type Config struct {
 	// RabbitMQ
 	RabbitMQURL string
 
+	// Nominatim (OpenStreetMap) address verification.
+	// NominatimUserAgent is required by OSM usage policy — empty disables
+	// the check (falls back to a passthrough geocoder).
+	NominatimBaseURL   string
+	NominatimUserAgent string
+
 	// CookieSecure marks auth/session cookies with the Secure attribute so
 	// browsers only send them over HTTPS. Enabled when APP_ENV=production.
 	CookieSecure bool
@@ -79,7 +85,14 @@ func Load() (*Config, error) {
 
 		RabbitMQURL: os.Getenv("RABBITMQ_URL"),
 
+		NominatimBaseURL:   os.Getenv("NOMINATIM_BASE_URL"),
+		NominatimUserAgent: os.Getenv("NOMINATIM_USER_AGENT"),
+
 		CookieSecure: os.Getenv("APP_ENV") == "production",
+	}
+
+	if cfg.NominatimBaseURL == "" {
+		cfg.NominatimBaseURL = "https://nominatim.openstreetmap.org"
 	}
 
 	if cfg.DatabaseURL == "" {
