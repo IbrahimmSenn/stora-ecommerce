@@ -95,6 +95,10 @@ func Load() (*Config, error) {
 		cfg.NominatimBaseURL = "https://nominatim.openstreetmap.org"
 	}
 
+	if cfg.NominatimUserAgent == "" {
+		cfg.NominatimUserAgent = "i-love-shopping/2.0 (+https://gitea.kood.tech/ibrahimsen/i-love-shopping)"
+	}
+
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}

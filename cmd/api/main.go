@@ -145,17 +145,8 @@ func main() {
 		return paymentsService.Reconcile(ctx, orderID)
 	})
 
-	// Address verification: Nominatim if a User-Agent is configured (OSM
-	// usage policy requires it), otherwise pass through. Logging the choice
-	// makes the demo state visible at boot.
-	var geocoder orders.Geocoder
-	if cfg.NominatimUserAgent != "" {
-		geocoder = orders.NewNominatimGeocoder(cfg.NominatimBaseURL, cfg.NominatimUserAgent)
-		log.Printf("address verification: nominatim at %s", cfg.NominatimBaseURL)
-	} else {
-		geocoder = orders.PassthroughGeocoder{}
-		log.Println("address verification: disabled (NOMINATIM_USER_AGENT not set)")
-	}
+	geocoder := orders.NewNominatimGeocoder(cfg.NominatimBaseURL, cfg.NominatimUserAgent)
+	log.Printf("address verification: nominatim at %s", cfg.NominatimBaseURL)
 
 	ordersRepo := orders.NewRepository(db)
 	ordersService := orders.NewService(ordersRepo, cartService, encryptor, geocoder, refunder, reconciler)
