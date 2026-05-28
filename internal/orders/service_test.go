@@ -411,6 +411,76 @@ func TestCheckout_VerificationUnavailableWithOverridePlacesOrder(t *testing.T) {
 	assert.NotEqual(t, uuid.Nil, resp.Order.ID)
 }
 
+// --- Prefill ----------------------------------------------------------------
+
+func TestGetLatestPrefill_NoOrders(t *testing.T) {
+	repo := newStubRepo()
+	svc := newTestService(t, repo, &stubCart{})
+
+	got, err := svc.GetLatestPrefill(context.Background(), uuid.New())
+	require.NoError(t, err)
+	assert.Nil(t, got, "users with no prior orders should produce a nil prefill (mapped to 204)")
+}
+
+func TestGetLatestPrefill_NewestOrderWins(t *testing.T) {
+	repo := newStubRepo()
+	enc, err := crypto.NewEncryptor(testHexKey)
+	require.NoError(t, err)
+
+	owner := uuid.New()
+	older := time.Now().Add(-24 * time.Hour)
+	newer := time.Now().Add(-1 * time.Hour)
+
+	seedEncryptedOrder(t, repo, enc, orderRow{UserID: &owner, CreatedAt: older}, "old@example.com", "5550000000", ShippingStandard, "Old Name", "1 Old St")
+	seedEncryptedOrder(t, repo, enc, orderRow{UserID: &owner, CreatedAt: newer}, "new@example.com", "5559999999", ShippingExpress, "New Name", "9 New Ave")
+
+	svc := newTestService(t, repo, &stubCart{})
+
+	got, err := svc.GetLatestPrefill(context.Background(), owner)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "new@example.com", got.Email)
+	assert.Equal(t, "5559999999", got.Phone)
+	assert.Equal(t, ShippingExpress, got.ShippingMethod)
+	assert.Equal(t, "New Name", got.Address.RecipientName)
+	assert.Equal(t, "9 New Ave", got.Address.Line1)
+}
+
+func TestGetLatestPrefill_OtherUserOrdersIgnored(t *testing.T) {
+	repo := newStubRepo()
+	enc, err := crypto.NewEncryptor(testHexKey)
+	require.NoError(t, err)
+
+	owner := uuid.New()
+	other := uuid.New()
+	seedEncryptedOrder(t, repo, enc, orderRow{UserID: &other, CreatedAt: time.Now()}, "other@example.com", "", ShippingStandard, "Other", "100 Other Way")
+
+	svc := newTestService(t, repo, &stubCart{})
+
+	got, err := svc.GetLatestPrefill(context.Background(), owner)
+	require.NoError(t, err)
+	assert.Nil(t, got, "another user's order must not leak into the prefill response")
+}
+
+func seedEncryptedOrder(t *testing.T, repo *stubRepo, enc *crypto.Encryptor, row orderRow, email, phone, shippingMethod, recipient, line1 string) uuid.UUID {
+	t.Helper()
+	emailEnc, err := enc.Encrypt(email)
+	require.NoError(t, err)
+	phoneEnc, err := enc.Encrypt(phone)
+	require.NoError(t, err)
+	recEnc, err := enc.Encrypt(recipient)
+	require.NoError(t, err)
+	l1Enc, err := enc.Encrypt(line1)
+	require.NoError(t, err)
+
+	row.EmailEnc = emailEnc
+	row.PhoneEnc = phoneEnc
+	row.ShippingMethod = shippingMethod
+	id := repo.seedOrder(row)
+	repo.addresses[id] = &addressRow{RecipientNameEnc: recEnc, Line1Enc: l1Enc}
+	return id
+}
+
 // --- stubs ------------------------------------------------------------------
 
 type stubRepo struct {
@@ -458,6 +528,26 @@ func (s *stubRepo) GetByID(_ context.Context, id uuid.UUID) (*orderRow, []OrderI
 		return nil, nil, nil, ErrOrderNotFound
 	}
 	return o, s.itemsByOrder[id], s.addresses[id], nil
+}
+
+func (s *stubRepo) GetLatestUserShipping(_ context.Context, userID uuid.UUID) (*orderRow, *addressRow, error) {
+	var newest *orderRow
+	for _, o := range s.orders {
+		if o.UserID == nil || *o.UserID != userID {
+			continue
+		}
+		if newest == nil || o.CreatedAt.After(newest.CreatedAt) {
+			newest = o
+		}
+	}
+	if newest == nil {
+		return nil, nil, ErrOrderNotFound
+	}
+	addr, ok := s.addresses[newest.ID]
+	if !ok {
+		return nil, nil, ErrOrderNotFound
+	}
+	return newest, addr, nil
 }
 
 func (s *stubRepo) ListByUser(_ context.Context, userID uuid.UUID, _ string, _, _ *time.Time) ([]OrderSummary, error) {

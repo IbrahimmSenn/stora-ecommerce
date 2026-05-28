@@ -73,6 +73,17 @@ type OrderSummary struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// PrefillResponse is what GET /api/v1/checkout/prefill returns for logged-in
+// users with at least one prior order. Email and address are pulled from the
+// user's most recent order; the frontend uses them to populate the checkout
+// form so a returning shopper doesn't retype the same details every time.
+type PrefillResponse struct {
+	Email          string          `json:"email"`
+	Phone          string          `json:"phone,omitempty"`
+	ShippingMethod string          `json:"shipping_method"`
+	Address        ShippingAddress `json:"address"`
+}
+
 // CheckoutRequest is the body for POST /api/v1/checkout.
 //
 // Addresses are validated for format (length, ISO country) and then for

@@ -87,6 +87,28 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, list)
 }
 
+// Prefill handles GET /api/v1/checkout/prefill. Returns the contact +
+// shipping address from the logged-in user's most recent order. Responds
+// 204 No Content for guests or for users with no prior orders — the
+// frontend treats either as "nothing to prefill" without surfacing an error.
+func (h *Handler) Prefill(w http.ResponseWriter, r *http.Request) {
+	userID, _ := h.resolveOwner(r)
+	if userID == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	prefill, err := h.service.GetLatestPrefill(r.Context(), *userID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if prefill == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	response.JSON(w, http.StatusOK, prefill)
+}
+
 // Cancel handles POST /api/v1/orders/{id}/cancel
 func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))

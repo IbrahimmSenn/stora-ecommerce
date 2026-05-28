@@ -322,6 +322,7 @@ func main() {
 
 		// --- Checkout / Orders (same auth surface as cart) ---
 		r.Post("/api/v1/checkout", ordersHandler.Checkout)
+		r.Get("/api/v1/checkout/prefill", ordersHandler.Prefill)
 		r.Get("/api/v1/orders", ordersHandler.List)
 		r.Get("/api/v1/orders/{id}", ordersHandler.GetByID)
 		r.Post("/api/v1/orders/{id}/cancel", ordersHandler.Cancel)

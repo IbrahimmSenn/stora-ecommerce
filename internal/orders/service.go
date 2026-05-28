@@ -2,6 +2,7 @@ package orders
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -27,6 +28,12 @@ type Service interface {
 	GetByID(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, id uuid.UUID) (*OrderResponse, error)
 	ListMine(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
 	Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, id uuid.UUID) (*OrderResponse, error)
+
+	// GetLatestPrefill returns the contact + shipping address from the user's
+	// most recent order, decrypted for use in the checkout-form prefill.
+	// Returns (nil, nil) when the user has no prior orders — the handler maps
+	// that to 204 No Content.
+	GetLatestPrefill(ctx context.Context, userID uuid.UUID) (*PrefillResponse, error)
 
 	// Service-to-service entry points used by the payments package — they
 	// bypass the user/guest owner check because the caller is the system
@@ -406,6 +413,34 @@ func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.U
 	}
 
 	return s.GetByID(ctx, userID, guestID, id)
+}
+
+func (s *service) GetLatestPrefill(ctx context.Context, userID uuid.UUID) (*PrefillResponse, error) {
+	row, addr, err := s.repo.GetLatestUserShipping(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrOrderNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	email, err := s.encryptor.Decrypt(row.EmailEnc)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt email: %w", err)
+	}
+	phone, err := s.encryptor.Decrypt(row.PhoneEnc)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt phone: %w", err)
+	}
+	address, err := s.decryptAddress(addr)
+	if err != nil {
+		return nil, err
+	}
+	return &PrefillResponse{
+		Email:          email,
+		Phone:          phone,
+		ShippingMethod: row.ShippingMethod,
+		Address:        *address,
+	}, nil
 }
 
 // LoadByID returns the decrypted order without an owner check. Reserved for

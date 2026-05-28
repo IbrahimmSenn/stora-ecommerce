@@ -176,14 +176,54 @@ function CheckoutInner() {
   // reading the last ApiError — means the button persists if the user
   // re-focuses a field, and clears the moment they hit submit again.
   const [addressVerificationFailed, setAddressVerificationFailed] = useState(false)
-  const [prefilledEmail, setPrefilledEmail] = useState(false)
+  const [prefillSource, setPrefillSource] = useState<'last_order' | 'email' | null>(null)
 
+  // Single-shot prefill on mount. Fetch the user's last-order details if they
+  // have any; otherwise fall back to email-from-JWT. Either way, only fill
+  // fields the user hasn't already typed into, so re-renders never clobber
+  // edits. The fetch is skipped for guests entirely.
   useEffect(() => {
-    if (authedEmail && !form.email) {
-      setForm((f) => ({ ...f, email: authedEmail }))
-      setPrefilledEmail(true)
+    if (!isAuthed) return
+    let cancelled = false
+    api
+      .getCheckoutPrefill()
+      .then((prefill) => {
+        if (cancelled) return
+        if (prefill) {
+          setForm((f) => ({
+            email: f.email || prefill.email,
+            phone: f.phone || (prefill.phone ?? ''),
+            shipping_method: f.shipping_method,
+            recipient_name: f.recipient_name || prefill.address.recipient_name,
+            line1: f.line1 || prefill.address.line1,
+            line2: f.line2 || (prefill.address.line2 ?? ''),
+            city: f.city || prefill.address.city,
+            region: f.region || prefill.address.region,
+            postal_code: f.postal_code || prefill.address.postal_code,
+            country: f.country || prefill.address.country,
+          }))
+          setPrefillSource('last_order')
+          return
+        }
+        if (authedEmail) {
+          setForm((f) => (f.email ? f : { ...f, email: authedEmail }))
+          setPrefillSource('email')
+        }
+      })
+      .catch(() => {
+        // Network or server failure — degrade to the email-only path.
+        if (cancelled) return
+        if (authedEmail) {
+          setForm((f) => (f.email ? f : { ...f, email: authedEmail }))
+          setPrefillSource('email')
+        }
+      })
+    return () => {
+      cancelled = true
     }
-  }, [authedEmail, form.email])
+    // Intentionally runs once per mount — see comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthed])
 
   const shipping = useMemo(
     () => SHIPPING_OPTIONS.find((o) => o.id === form.shipping_method)!,
@@ -316,7 +356,12 @@ function CheckoutInner() {
 
       <div className="grid lg:grid-cols-[1.4fr_1fr] gap-12 lg:gap-20">
         <form onSubmit={handleSubmit} noValidate>
-          {isAuthed && prefilledEmail && (
+          {isAuthed && prefillSource === 'last_order' && (
+            <p className="mb-10 text-xs text-ink-faint border-l-2 border-rule pl-3 py-1">
+              Prefilled from your last order. Edit anything that's changed.
+            </p>
+          )}
+          {isAuthed && prefillSource === 'email' && (
             <p className="mb-10 text-xs text-ink-faint border-l-2 border-rule pl-3 py-1">
               Contact prefilled from your account.
             </p>

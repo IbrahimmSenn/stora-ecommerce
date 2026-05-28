@@ -507,6 +507,9 @@ func (s *stubOrders) ListMine(context.Context, *uuid.UUID, *uuid.UUID, string, *
 func (s *stubOrders) Cancel(context.Context, *uuid.UUID, *uuid.UUID, uuid.UUID) (*orders.OrderResponse, error) {
 	return nil, nil
 }
+func (s *stubOrders) GetLatestPrefill(context.Context, uuid.UUID) (*orders.PrefillResponse, error) {
+	return nil, nil
+}
 func (s *stubOrders) LoadByID(_ context.Context, _ uuid.UUID) (*orders.OrderResponse, error) {
 	return s.order, nil
 }

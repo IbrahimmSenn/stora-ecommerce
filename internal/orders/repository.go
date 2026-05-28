@@ -41,6 +41,7 @@ type Repository interface {
 	WithTx(ctx context.Context, fn func(tx TxRepo) error) error
 
 	GetByID(ctx context.Context, id uuid.UUID) (*orderRow, []OrderItem, *addressRow, error)
+	GetLatestUserShipping(ctx context.Context, userID uuid.UUID) (*orderRow, *addressRow, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
 	ListByGuest(ctx context.Context, guestSessionID uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
@@ -127,6 +128,36 @@ func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*orderR
 	}
 
 	return &o, items, &a, nil
+}
+
+// GetLatestUserShipping returns the encrypted contact + shipping fields from
+// the most recent order belonging to userID, for checkout-form prefill. Only
+// the fields the form reuses are selected — items and totals aren't needed.
+// Returns ErrOrderNotFound when the user has no prior orders.
+func (r *postgresRepository) GetLatestUserShipping(ctx context.Context, userID uuid.UUID) (*orderRow, *addressRow, error) {
+	var o orderRow
+	var a addressRow
+	err := r.db.QueryRow(ctx,
+		`SELECT o.email_encrypted, o.phone_encrypted, o.shipping_method,
+			a.recipient_name_encrypted, a.line1_encrypted, a.line2_encrypted,
+			a.city_encrypted, a.region_encrypted, a.postal_code_encrypted, a.country_encrypted
+		 FROM orders o
+		 JOIN shipping_addresses a ON a.order_id = o.id
+		 WHERE o.user_id = $1
+		 ORDER BY o.created_at DESC
+		 LIMIT 1`, userID,
+	).Scan(
+		&o.EmailEnc, &o.PhoneEnc, &o.ShippingMethod,
+		&a.RecipientNameEnc, &a.Line1Enc, &a.Line2Enc,
+		&a.CityEnc, &a.RegionEnc, &a.PostalCodeEnc, &a.CountryEnc,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrOrderNotFound
+		}
+		return nil, nil, fmt.Errorf("get latest user shipping: %w", err)
+	}
+	return &o, &a, nil
 }
 
 func (r *postgresRepository) ListByUser(ctx context.Context, userID uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error) {

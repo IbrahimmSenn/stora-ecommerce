@@ -230,6 +230,13 @@ export type OrderResponse = {
   address: CheckoutAddress
 }
 
+export type CheckoutPrefill = {
+  email: string
+  phone?: string
+  shipping_method: ShippingMethod
+  address: CheckoutAddress
+}
+
 export type OrderSummary = {
   id: string
   order_number: string
@@ -351,6 +358,17 @@ export const api = {
       method: 'POST',
       body: req,
     }),
+  getCheckoutPrefill: async (): Promise<CheckoutPrefill | null> => {
+    try {
+      const data = await request<CheckoutPrefill | null>('/api/v1/checkout/prefill')
+      return data ?? null
+    } catch (e) {
+      // Guests and signed-out users can't prefill — fail silently so the
+      // checkout form just renders empty rather than showing an error.
+      if (e instanceof ApiError && e.status === 401) return null
+      throw e
+    }
+  },
   listOrders: (params?: { status?: string; from?: string; to?: string }) => {
     const q = new URLSearchParams()
     if (params?.status) q.set('status', params.status)
