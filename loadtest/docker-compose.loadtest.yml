@@ -1,0 +1,18 @@
+# Overrides applied only while load testing:
+#   docker compose -f docker-compose.yml -f loadtest/docker-compose.loadtest.yml up -d --force-recreate api
+#
+#  - Rate limits are relaxed because k6 drives all traffic from a single IP, and
+#    the per-IP token bucket would otherwise cap throughput at the production
+#    limit and return 429s (a test artefact, not a real bottleneck).
+#  - Address verification is pointed at a dead port so checkout fails the
+#    geocoder fast and proceeds via address_override, isolating order-placement
+#    throughput from the external Nominatim dependency (itself a documented,
+#    real-world checkout bottleneck — see REPORT.md).
+services:
+  api:
+    environment:
+      RATE_LIMIT_RPS: "1000000"
+      RATE_LIMIT_BURST: "1000000"
+      AUTH_RATE_LIMIT_RPS: "1000000"
+      AUTH_RATE_LIMIT_BURST: "1000000"
+      NOMINATIM_BASE_URL: "http://127.0.0.1:9"
