@@ -2,6 +2,8 @@ import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
+import { Seo } from '../components/Seo'
+import { SavedAddresses } from './SavedAddresses'
 
 export function AccountPage() {
   const { isAuthed, email, role } = useAuth()
@@ -9,21 +11,19 @@ export function AccountPage() {
 
   return (
     <Page width="max-w-3xl">
+      <Seo title="Your account" noindex />
       <Masthead
-        number="01"
         eyebrow="Account"
-        title={email ?? 'Signed in.'}
+        title={email ?? 'Your account'}
         caption={
           role
             ? `Signed in as ${role}.`
-            : 'Manage your security and integrations below.'
+            : 'Manage your security and saved details below.'
         }
       />
 
       <section className="grid grid-cols-1 md:grid-cols-[12rem_1fr] gap-y-6 gap-x-12 py-8 border-t border-rule">
-        <div className="uc-tight text-[0.7rem] text-ink-faint">
-          <span className="tnum">01</span> · Security
-        </div>
+        <div className="uc-tight text-[0.7rem] text-ink-faint">Security</div>
         <div className="space-y-2">
           <h2 className="font-display text-xl text-ink font-bold">
             Two-factor authentication
@@ -51,9 +51,7 @@ export function AccountPage() {
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-[12rem_1fr] gap-y-6 gap-x-12 py-8 border-t border-rule">
-        <div className="uc-tight text-[0.7rem] text-ink-faint">
-          <span className="tnum">02</span> · Orders
-        </div>
+        <div className="uc-tight text-[0.7rem] text-ink-faint">Orders</div>
         <div className="space-y-2">
           <h2 className="font-display text-xl text-ink font-bold">
             Order history
@@ -71,9 +69,13 @@ export function AccountPage() {
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-[12rem_1fr] gap-y-6 gap-x-12 py-8 border-t border-rule">
-        <div className="uc-tight text-[0.7rem] text-ink-faint">
-          <span className="tnum">03</span> · Developer
-        </div>
+        <div className="uc-tight text-[0.7rem] text-ink-faint">Addresses</div>
+        <SavedAddresses />
+      </section>
+
+      {import.meta.env.DEV && (
+      <section className="grid grid-cols-1 md:grid-cols-[12rem_1fr] gap-y-6 gap-x-12 py-8 border-t border-rule">
+        <div className="uc-tight text-[0.7rem] text-ink-faint">Developer</div>
         <div className="space-y-2">
           <h2 className="font-display text-xl text-ink font-bold">
             Token rotation tester
@@ -90,6 +92,7 @@ export function AccountPage() {
           </Link>
         </div>
       </section>
+      )}
     </Page>
   )
 }
