@@ -74,19 +74,14 @@ export function CheckoutPage() {
     }
   }, [])
 
-  // Shipping methods are admin-managed; fetch the active set for the selector.
+  // Shipping methods are admin-managed; fetch the active set so the Stripe seed
+  // amount includes shipping and the inner form can render the selector.
   useEffect(() => {
     let cancelled = false
     api
       .listDeliveryOptions()
       .then((opts) => {
-        if (cancelled) return
-        setDeliveryOptions(opts)
-        // Default the selection to the first option when the seeded 'standard'
-        // isn't present (e.g. an admin renamed/removed it).
-        if (opts.length > 0 && !opts.some((o) => o.code === 'standard')) {
-          setForm((f) => ({ ...f, shipping_method: opts[0].code }))
-        }
+        if (!cancelled) setDeliveryOptions(opts)
       })
       .catch(() => {
         // Non-fatal: the order summary still works; the selector just shows
@@ -155,12 +150,12 @@ export function CheckoutPage() {
 
   return (
     <Elements stripe={getStripe(publishableKey)} options={options} key={theme}>
-      <CheckoutInner />
+      <CheckoutInner deliveryOptions={deliveryOptions} />
     </Elements>
   )
 }
 
-function CheckoutInner() {
+function CheckoutInner({ deliveryOptions }: { deliveryOptions: DeliveryOption[] }) {
   const { cart, updateItem, removeItem } = useCart()
   const { email: authedEmail, isAuthed } = useAuth()
   const navigate = useNavigate()
@@ -249,6 +244,16 @@ function CheckoutInner() {
   const shipping = deliveryOptions.find((o) => o.code === form.shipping_method) ?? null
   const subtotal = cart?.total ?? 0
   const total = subtotal + (shipping?.price_cents ?? 0)
+
+  // Default the shipping selection to the first available option when the
+  // current one isn't offered (e.g. an admin removed the seeded 'standard').
+  useEffect(() => {
+    if (deliveryOptions.length === 0) return
+    if (!deliveryOptions.some((o) => o.code === form.shipping_method)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setForm((f) => ({ ...f, shipping_method: deliveryOptions[0].code }))
+    }
+  }, [deliveryOptions, form.shipping_method])
 
   // Keep Stripe Elements' internal amount in sync when the shipping method
   // changes — required for the deferred-intent confirm step to validate.
