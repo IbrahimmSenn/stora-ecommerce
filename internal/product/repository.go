@@ -110,18 +110,17 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 	if params.OnSale {
 		conditions = append(conditions, "p.sale_price IS NOT NULL")
 	}
+	// Rating filter reads the denormalized column (trigger-maintained), so it's
+	// a plain WHERE condition rather than a HAVING over an aggregate.
+	if params.MinRating != nil {
+		conditions = append(conditions, fmt.Sprintf("p.rating_avg >= $%d", argIdx))
+		args = append(args, *params.MinRating)
+		argIdx++
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
 		whereClause = "WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	// Rating filter goes in HAVING since it's an aggregate.
-	havingClause := ""
-	if params.MinRating != nil {
-		havingClause = fmt.Sprintf("HAVING COALESCE(AVG(rv.rating), 0) >= $%d", argIdx)
-		args = append(args, *params.MinRating)
-		argIdx++
 	}
 
 	// Order by clause.
@@ -132,7 +131,7 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 	case "price_desc":
 		orderClause = "ORDER BY p.price DESC"
 	case "rating":
-		orderClause = "ORDER BY avg_rating DESC"
+		orderClause = "ORDER BY p.rating_avg DESC"
 	case "discount":
 		// Biggest percentage off first; non-sale rows (NULL) sort last.
 		orderClause = "ORDER BY (p.price - p.sale_price)::numeric / NULLIF(p.price, 0) DESC NULLS LAST"
@@ -156,15 +155,7 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 	offset := (params.Page - 1) * params.PageSize
 
 	// Count query (for pagination).
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM (
-			SELECT p.id
-			FROM products p
-			LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
-			%s
-			GROUP BY p.id
-			%s
-		) sub`, whereClause, havingClause)
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM products p %s`, whereClause)
 
 	var total int
 	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total)
@@ -178,20 +169,16 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 			p.id, p.name, p.price, p.sale_price, p.stock_quantity,
 			c.name AS category_name,
 			b.name AS brand_name,
-			COALESCE(AVG(rv.rating), 0) AS avg_rating,
-			COUNT(rv.id) AS review_count,
+			p.rating_avg, p.rating_count,
 			%s AS primary_image,
 			%s
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
-		%s
-		GROUP BY p.id, c.name, b.name
 		%s
 		%s
 		LIMIT $%d OFFSET $%d`,
-		primaryImageSub, relevanceCol, whereClause, havingClause, orderClause, argIdx, argIdx+1)
+		primaryImageSub, relevanceCol, whereClause, orderClause, argIdx, argIdx+1)
 
 	dataArgs := append(args, params.PageSize, offset)
 
@@ -258,14 +245,12 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*ProductDe
 			p.created_at, p.updated_at,
 			c.name, c.slug,
 			b.name,
-			COALESCE(AVG(rv.rating), 0),
-			COUNT(rv.id)
+			p.rating_avg,
+			p.rating_count
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
-		WHERE p.id = $1
-		GROUP BY p.id, c.name, c.slug, b.name`
+		WHERE p.id = $1`
 
 	var d ProductDetail
 	err := r.db.QueryRow(ctx, query, id).Scan(
@@ -464,18 +449,15 @@ func (r *postgresRepository) Candidates(ctx context.Context, excludeIDs []string
 			p.id, p.name, p.price, p.sale_price, p.stock_quantity,
 			c.name AS category_name,
 			b.name AS brand_name,
-			COALESCE(AVG(rv.rating), 0) AS avg_rating,
-			COUNT(rv.id) AS review_count,
+			p.rating_avg, p.rating_count,
 			(SELECT COALESCE(pi.card_url, pi.url) FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
 			NULL::float8 AS relevance,
 			p.category_id, p.brand_id
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
 		WHERE p.stock_quantity > 0
 			AND p.id <> ALL($1::uuid[])
-		GROUP BY p.id, c.name, b.name
 		ORDER BY p.created_at DESC
 		LIMIT $2`
 
@@ -541,16 +523,13 @@ func (r *postgresRepository) ListByIDs(ctx context.Context, productIDs []string)
 			p.id, p.name, p.price, p.sale_price, p.stock_quantity,
 			c.name AS category_name,
 			b.name AS brand_name,
-			COALESCE(AVG(rv.rating), 0) AS avg_rating,
-			COUNT(rv.id) AS review_count,
+			p.rating_avg, p.rating_count,
 			(SELECT COALESCE(pi.card_url, pi.url) FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
 			NULL::float8 AS relevance
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
-		WHERE p.id = ANY($1::uuid[]) AND p.stock_quantity > 0
-		GROUP BY p.id, c.name, b.name`
+		WHERE p.id = ANY($1::uuid[]) AND p.stock_quantity > 0`
 
 	rows, err := r.db.Query(ctx, query, productIDs)
 	if err != nil {
