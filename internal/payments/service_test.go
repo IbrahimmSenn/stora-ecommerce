@@ -521,6 +521,18 @@ func (s *stubOrders) MarkPaymentFailed(_ context.Context, _ uuid.UUID) error {
 	s.statusCalls = append(s.statusCalls, orders.StatusPaymentFailed)
 	return nil
 }
+func (s *stubOrders) AdminList(context.Context, string, *time.Time, *time.Time, int, int) (*orders.AdminOrderList, error) {
+	return &orders.AdminOrderList{}, nil
+}
+func (s *stubOrders) AdminGet(_ context.Context, _ uuid.UUID) (*orders.OrderResponse, error) {
+	return nil, orders.ErrOrderNotFound
+}
+func (s *stubOrders) AdminUpdateStatus(_ context.Context, _ uuid.UUID, _ string) (*orders.OrderResponse, error) {
+	return nil, orders.ErrOrderNotFound
+}
+func (s *stubOrders) AdminRefund(_ context.Context, _ uuid.UUID) (*orders.OrderResponse, error) {
+	return nil, orders.ErrOrderNotFound
+}
 
 type stubIntentCall struct {
 	amount   int64

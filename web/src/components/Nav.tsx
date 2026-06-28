@@ -1,18 +1,21 @@
-/* Nav.tsx — top navigation.
+/* Nav.tsx — marketplace header.
  *
- * STORA wordmark (home link) — search input — cart icon (badge) — profile
- * icon (dropdown) — hamburger (opens side panel). Admin link still surfaces
- * when role=admin so the panel doesn't have to host it. Theme toggle has
- * moved into the side panel.
+ * Two tiers on a saturated primary bar: top row is the STORA wordmark, a
+ * prominent search, and the account / cart controls; beneath it a category
+ * strip (CategoryBar). Sticky so it stays in reach while scrolling. The
+ * hamburger opens the side panel (categories, nav links, theme toggle) on
+ * narrow screens.
  */
 import { useRef } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useSidePanel } from './useSidePanel'
 import { Menu } from './icons'
+import { Logo } from './Logo'
 import { NavCart } from './NavCart'
 import { NavProfile } from './NavProfile'
 import { NavSearch } from './NavSearch'
+import { CategoryBar } from './CategoryBar'
 
 export function Nav() {
   const { role } = useAuth()
@@ -20,18 +23,24 @@ export function Nav() {
   const hamburgerRef = useRef<HTMLButtonElement | null>(null)
 
   return (
-    <nav className="border-b border-rule">
-      <div className="max-w-6xl mx-auto px-6 lg:px-10 py-5 flex items-center gap-8">
-        <Link
-          to="/"
-          aria-label="Stora, home"
-          className="font-display text-[0.95rem] uppercase tracking-[0.32em] font-bold shrink-0"
+    <header className="sticky top-0 z-30 bg-primary text-on-primary">
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-3 flex items-center gap-4 lg:gap-6">
+        <button
+          ref={hamburgerRef}
+          type="button"
+          onClick={() => toggleSidePanel(hamburgerRef.current)}
+          aria-haspopup="dialog"
+          aria-expanded={sidePanelOpen}
+          aria-label="Open menu"
+          className="inline-flex h-11 w-11 items-center justify-center shrink-0 rounded-md transition-colors cursor-pointer text-on-primary hover:bg-on-primary/15"
         >
-          STORA
-        </Link>
+          <Menu size={28} strokeWidth={2.25} aria-hidden />
+        </button>
 
-        <div className="hidden md:block">
-          <NavSearch />
+        <Logo />
+
+        <div className="flex-1 min-w-0 max-w-2xl">
+          <NavSearch prominent />
         </div>
 
         {role === 'admin' && (
@@ -39,7 +48,9 @@ export function Nav() {
             to="/admin/products"
             className={({ isActive }) =>
               `hidden lg:inline text-sm transition-colors ${
-                isActive ? 'text-ink' : 'text-ink-soft hover:text-ink'
+                isActive
+                  ? 'text-on-primary'
+                  : 'text-on-primary/80 hover:text-on-primary'
               }`
             }
           >
@@ -47,24 +58,13 @@ export function Nav() {
           </NavLink>
         )}
 
-        <div className="ml-auto flex items-center gap-1">
-          <NavCart />
-          <NavProfile />
-          <button
-            ref={hamburgerRef}
-            type="button"
-            onClick={() => toggleSidePanel(hamburgerRef.current)}
-            aria-haspopup="dialog"
-            aria-expanded={sidePanelOpen}
-            aria-label="Open menu"
-            className={`inline-flex h-10 w-10 md:h-9 md:w-9 items-center justify-center transition-colors cursor-pointer ${
-              sidePanelOpen ? 'text-ink' : 'text-ink-soft hover:text-ink'
-            }`}
-          >
-            <Menu size={18} strokeWidth={1.5} aria-hidden />
-          </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <NavProfile onDark />
+          <NavCart onDark />
         </div>
       </div>
-    </nav>
+
+      <CategoryBar />
+    </header>
   )
 }

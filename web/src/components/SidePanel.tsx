@@ -6,10 +6,11 @@
  * body scroll lock while open, mirrors CartPanel conventions.
  *
  * Contents (top → bottom):
- *   01 / Categories — links to /shop/<slug>
- *   02 / Navigate   — Shop, Orders
- *   03 / Theme      — Sun/Moon icon toggle
- *   Auth block      — Register/Log in OR email/Account/Log out
+ *   Search     — full-width product search
+ *   Categories — links to /shop/<slug>
+ *   Navigate   — Shop, Orders, About, Contact
+ *   Theme      — Sun/Moon icon toggle
+ *   Auth block — Register/Log in OR email/Account/Log out
  */
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -137,41 +138,38 @@ export function SidePanel() {
         aria-modal="true"
         aria-label="Menu"
         onKeyDown={handleKeyDown}
-        className="absolute right-0 top-0 h-full bg-surface border-l border-rule flex flex-col"
+        className="absolute left-0 top-0 h-full bg-surface border-r border-rule flex flex-col"
         style={{
           width: 'clamp(20rem, 30vw, 22.5rem)',
           maxWidth: '100vw',
-          transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
+          transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
           transition: reduced
             ? 'none'
             : `transform ${isOpen ? 360 : 280}ms var(--ease-out-quart)`,
           willChange: reduced ? undefined : 'transform',
         }}
       >
-        <header className="px-8 pt-10 pb-6 flex items-baseline justify-between gap-4">
-          <div>
-            <p className="uc-tight text-[0.7rem] text-ink-faint mb-2">Menu</p>
-            <h2 className="font-display text-xl text-ink leading-none font-bold">
-              Browse.
-            </h2>
-          </div>
+        <header className="px-8 pt-10 pb-6 flex items-center justify-between gap-4">
+          <h2 className="font-display text-2xl text-ink leading-none font-bold">
+            Menu
+          </h2>
           <button
             ref={closeButtonRef}
             type="button"
             onClick={close}
             aria-label="Close menu"
-            className="inline-flex h-9 w-9 items-center justify-center text-ink-soft hover:text-ink transition-colors cursor-pointer"
+            className="inline-flex h-10 w-10 items-center justify-center text-ink-soft hover:text-ink transition-colors cursor-pointer"
           >
-            <X size={18} strokeWidth={1.5} aria-hidden />
+            <X size={22} strokeWidth={1.75} aria-hidden />
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-10">
-          <Section number="00" label="Search">
+          <Section label="Search">
             <NavSearch fullWidth onCommit={close} />
           </Section>
 
-          <Section number="01" label="Categories">
+          <Section label="Categories">
             {categories.length === 0 ? (
               <p className="text-sm text-ink-faint">Loading.</p>
             ) : (
@@ -190,7 +188,7 @@ export function SidePanel() {
             )}
           </Section>
 
-          <Section number="02" label="Navigate">
+          <Section label="Navigate">
             <ul className="flex flex-col">
               <li>
                 <PanelLink to="/">Shop</PanelLink>
@@ -198,10 +196,16 @@ export function SidePanel() {
               <li>
                 <PanelLink to="/orders">Orders</PanelLink>
               </li>
+              <li>
+                <PanelLink to="/about">About</PanelLink>
+              </li>
+              <li>
+                <PanelLink to="/contact">Contact</PanelLink>
+              </li>
             </ul>
           </Section>
 
-          <Section number="03" label="Theme">
+          <Section label="Theme">
             <ThemeToggle />
           </Section>
         </div>
@@ -231,23 +235,15 @@ export function SidePanel() {
 }
 
 function Section({
-  number,
   label,
   children,
 }: {
-  number: string
   label: string
   children: React.ReactNode
 }) {
   return (
     <section>
-      <p className="uc-tight text-[0.7rem] text-ink-faint mb-4">
-        <span className="tnum">{number}</span>
-        <span aria-hidden className="text-rule-strong mx-2">
-          /
-        </span>
-        {label}
-      </p>
+      <h3 className="uc-tight text-xs text-ink-faint mb-3">{label}</h3>
       {children}
     </section>
   )
@@ -266,8 +262,8 @@ function PanelLink({
     <Link
       to={to}
       aria-current={active ? 'page' : undefined}
-      className={`block py-2 text-sm transition-colors ${
-        active ? 'text-ink' : 'text-ink-soft hover:text-ink'
+      className={`block py-2.5 text-lg transition-colors ${
+        active ? 'text-ink font-medium' : 'text-ink-soft hover:text-ink'
       }`}
     >
       {children}
@@ -286,7 +282,7 @@ function PanelButton({
     <button
       type="button"
       onClick={onClick}
-      className="block w-full text-left py-2 text-sm text-ink-soft hover:text-ink transition-colors cursor-pointer"
+      className="block w-full text-left py-2.5 text-lg text-ink-soft hover:text-ink transition-colors cursor-pointer"
     >
       {children}
     </button>

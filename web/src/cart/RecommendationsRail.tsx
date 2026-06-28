@@ -35,8 +35,6 @@ export function RecommendationsRail({
     <section className="mt-20 pt-12 border-t border-rule">
       <header className="mb-8">
         <p className="uc-tight text-[0.7rem] text-ink-faint">
-          <span className="tnum">03</span>
-          <span aria-hidden className="text-rule-strong mx-2">/</span>
           For you
         </p>
         <h2 className="font-display text-[clamp(1.5rem,3vw,2.25rem)] leading-none mt-3 text-ink">

@@ -14,4 +14,11 @@ export {
   Sun,
   Moon,
   X,
+  Star,
+  ThumbsUp,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Pause,
+  Check,
 } from 'lucide-react'

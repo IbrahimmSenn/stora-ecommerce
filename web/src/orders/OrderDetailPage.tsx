@@ -25,6 +25,7 @@ export function OrderDetailPage() {
     // hits the API unauthenticated and gets ErrForbidden.
     if (initializing) return
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     api
       .getOrder(id)
@@ -178,8 +179,6 @@ export function OrderDetailPage() {
 
       <section className="mb-14">
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-4">
-          <span className="tnum">01</span>
-          <span aria-hidden className="text-rule-strong mx-2">/</span>
           Items
         </h2>
         <ul className="divide-y divide-rule border-y border-rule">
@@ -213,8 +212,6 @@ export function OrderDetailPage() {
 
       <section className="mb-14">
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-4">
-          <span className="tnum">02</span>
-          <span aria-hidden className="text-rule-strong mx-2">/</span>
           Shipping to
         </h2>
         <address className="not-italic text-sm leading-relaxed text-ink">

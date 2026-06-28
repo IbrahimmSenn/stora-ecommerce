@@ -39,6 +39,8 @@ describe('RecommendationsRail', () => {
         price: 4200,
         stock_quantity: 10,
         primary_image: 'https://example.com/lantern.jpg',
+        avg_rating: 0,
+        review_count: 0,
       },
       {
         id: '22222222-2222-2222-2222-222222222222',
@@ -46,6 +48,8 @@ describe('RecommendationsRail', () => {
         price: 9900,
         stock_quantity: 2,
         primary_image: null,
+        avg_rating: 0,
+        review_count: 0,
       },
     ]
     vi.spyOn(api, 'recommendations').mockResolvedValue({ items })

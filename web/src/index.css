@@ -16,6 +16,9 @@
   --color-ink-faint: var(--color-ink-faint);
   --color-rule: var(--color-rule);
   --color-rule-strong: var(--color-rule-strong);
+  --color-primary: var(--color-primary);
+  --color-primary-soft: var(--color-primary-soft);
+  --color-on-primary: var(--color-on-primary);
   --color-accent: var(--color-accent);
   --color-accent-soft: var(--color-accent-soft);
   --color-on-accent: var(--color-on-accent);
@@ -63,9 +66,9 @@
     font-feature-settings: "tnum";
   }
 
-  /* Focus ring uses the accent — always visible, never removed. */
+  /* Focus ring uses the primary — always visible, never removed. */
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 

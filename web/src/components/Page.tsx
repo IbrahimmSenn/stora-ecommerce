@@ -13,11 +13,11 @@ type PageProps = {
  * Page is the route shell: max-width wrapper + first-paint Reveal applied to
  * the immediate children. Use as the outermost element of every route.
  */
-export function Page({ children, width = 'max-w-5xl', className = '' }: PageProps) {
+export function Page({ children, width = 'max-w-7xl', className = '' }: PageProps) {
   return (
     <Reveal
       stagger={70}
-      className={`${width} mx-auto px-6 lg:px-10 py-14 lg:py-20 ${className}`}
+      className={`${width} mx-auto px-4 lg:px-8 py-8 lg:py-12 ${className}`}
     >
       {children}
     </Reveal>

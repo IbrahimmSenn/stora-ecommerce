@@ -87,7 +87,7 @@ export function PaymentPage() {
   if (loading) {
     return (
       <Page width="max-w-6xl">
-        <Masthead number="04" eyebrow="Payment" title="Preparing." />
+        <Masthead eyebrow="Payment" title="Preparing." />
       </Page>
     )
   }
@@ -96,7 +96,6 @@ export function PaymentPage() {
     return (
       <Page width="max-w-4xl">
         <Masthead
-          number="04"
           eyebrow="Payment"
           title="Couldn't start."
           caption={error ?? 'Could not start payment.'}
@@ -114,7 +113,6 @@ export function PaymentPage() {
   return (
     <Page width="max-w-6xl">
       <Masthead
-        number="04"
         eyebrow="Payment"
         title="Complete your order."
         caption={

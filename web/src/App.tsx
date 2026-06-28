@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Nav } from './components/Nav'
+import { Footer } from './components/Footer'
 import { ProductsPage } from './products/ProductsPage'
 import { ProductDetailPage } from './products/ProductDetailPage'
 import { CartPage } from './cart/CartPage'
@@ -20,11 +21,25 @@ import { AdminLayout } from './admin/AdminLayout'
 import { AdminProductsPage } from './admin/AdminProductsPage'
 import { AdminCategoriesPage } from './admin/AdminCategoriesPage'
 import { AdminBrandsPage } from './admin/AdminBrandsPage'
+import { AdminOrdersPage } from './admin/AdminOrdersPage'
+import { AdminUsersPage } from './admin/AdminUsersPage'
+import { AdminReviewsPage } from './admin/AdminReviewsPage'
+import { AdminAuditPage } from './admin/AdminAuditPage'
+import { NotFoundPage } from './components/NotFoundPage'
+import { AboutPage } from './pages/AboutPage'
+import { ContactPage } from './pages/ContactPage'
 
 function App() {
   return (
     <>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:bg-accent focus:text-on-accent focus:px-4 focus:py-2 focus:no-underline"
+      >
+        Skip to content
+      </a>
       <Nav />
+      <main id="main" tabIndex={-1} className="outline-none">
       <Routes>
         <Route path="/" element={<ProductsPage />} />
         <Route path="/shop/:slug" element={<ProductsPage />} />
@@ -42,21 +57,32 @@ function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/auth/oauth/callback" element={<OAuthCallbackPage />} />
 
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/contact" element={<ContactPage />} />
+
         <Route path="/account" element={<AccountPage />} />
         <Route path="/account/2fa/setup" element={<TwoFactorSetupPage />} />
         <Route path="/account/2fa/disable" element={<TwoFactorDisablePage />} />
 
-        <Route path="/dev/tokens" element={<TokenTesterPage />} />
+        {import.meta.env.DEV && (
+          <Route path="/dev/tokens" element={<TokenTesterPage />} />
+        )}
 
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Navigate to="products" replace />} />
           <Route path="products" element={<AdminProductsPage />} />
           <Route path="categories" element={<AdminCategoriesPage />} />
           <Route path="brands" element={<AdminBrandsPage />} />
+          <Route path="orders" element={<AdminOrdersPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="reviews" element={<AdminReviewsPage />} />
+          <Route path="audit" element={<AdminAuditPage />} />
         </Route>
 
-        <Route path="*" element={<p className="p-8">Not found.</p>} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </main>
+      <Footer />
     </>
   )
 }

@@ -1,43 +1,49 @@
 /* tokens.css — Stora design tokens
  *
- * Near-monochrome OKLCH palette. Light mode is a clean cool near-white
- * (surface hue 60) with a terracotta accent (hue 38). Dark mode is a cool
- * deep-ink (hue 250) with a lighter terracotta. One accent, used rarely. No
- * pure black or white anywhere.
+ * Vivid marketplace OKLCH palette. Electric cobalt-indigo primary (hue 265)
+ * carries the header bar, primary actions, and links. A hot coral-red accent
+ * (hue 25) marks sale prices and deal badges; a punchy yellow highlight (hue
+ * 95) carries promo/"new" flashes. Surfaces are neutral-cool near-white.
+ * Dark mode keeps the same hues, re-toned lighter. No pure black or white.
  *
  * Tailwind v4 reads the @theme block in index.css to generate utility
- * classes (bg-surface, text-ink, bg-accent, border-rule, bg-highlight, …).
+ * classes (bg-surface, text-ink, bg-primary, bg-accent, bg-highlight, …).
  * This file holds the raw vars and the .dark override.
  */
 
 :root {
-  /* Surfaces — page, raised, sunken. Clean near-white (Net-a-Porter / SSENSE). */
-  --color-surface-0: oklch(0.985 0.003 60);
+  /* Surfaces — page, raised, sunken. Neutral near-white, no warm tint. */
+  --color-surface-0: oklch(0.985 0 0);
   --color-surface-1: oklch(1.00 0 0);
-  --color-surface-2: oklch(0.95 0.004 60);
+  --color-surface-2: oklch(0.955 0.003 265);
 
   /* Text — graphite ink, secondary, tertiary. */
-  --color-ink: oklch(0.18 0.01 25);
-  --color-ink-soft: oklch(0.42 0.01 25);
-  --color-ink-faint: oklch(0.58 0.006 25);
+  --color-ink: oklch(0.20 0.01 265);
+  --color-ink-soft: oklch(0.44 0.01 265);
+  --color-ink-faint: oklch(0.58 0.008 265);
 
   /* Borders — subtle separators and explicit edges. */
-  --color-rule: oklch(0.88 0.006 25);
-  --color-rule-strong: oklch(0.78 0.008 25);
+  --color-rule: oklch(0.90 0.005 265);
+  --color-rule-strong: oklch(0.80 0.008 265);
 
-  /* Accent — terracotta. Used for primary actions, focus, errors. */
-  --color-accent: oklch(0.62 0.17 38);
-  --color-accent-soft: oklch(0.55 0.16 38);
-  --color-on-accent: oklch(0.99 0.003 60);
+  /* Primary — electric cobalt-indigo. Header bar, primary actions, links. */
+  --color-primary: oklch(0.52 0.20 265);
+  --color-primary-soft: oklch(0.45 0.19 265);
+  --color-on-primary: oklch(0.99 0 0);
 
-  /* Highlight — amber. Sale / best-seller badges. */
-  --color-highlight: oklch(0.88 0.13 85);
-  --color-highlight-ink: oklch(0.35 0.08 75);
+  /* Accent — hot coral-red. Sale prices, deal badges, focus, errors. */
+  --color-accent: oklch(0.60 0.22 25);
+  --color-accent-soft: oklch(0.53 0.21 25);
+  --color-on-accent: oklch(0.99 0 0);
 
-  /* Feedback — desaturated, calm. Negative shares the accent hue. */
-  --color-positive: oklch(0.52 0.10 150);
-  --color-warning: oklch(0.62 0.13 65);
-  --color-negative: oklch(0.45 0.15 25);
+  /* Highlight — punchy yellow. Promo / "new" / best-seller flashes. */
+  --color-highlight: oklch(0.86 0.17 95);
+  --color-highlight-ink: oklch(0.32 0.09 80);
+
+  /* Feedback — readable, saturated. */
+  --color-positive: oklch(0.55 0.14 150);
+  --color-warning: oklch(0.70 0.16 65);
+  --color-negative: oklch(0.55 0.20 25);
 
   /* Font stacks. */
   --font-display: "Lato", ui-sans-serif, system-ui, sans-serif;
@@ -67,27 +73,31 @@
 }
 
 .dark {
-  --color-surface-0: oklch(0.14 0.008 250);
-  --color-surface-1: oklch(0.18 0.008 250);
-  --color-surface-2: oklch(0.21 0.008 250);
+  --color-surface-0: oklch(0.16 0.012 265);
+  --color-surface-1: oklch(0.20 0.014 265);
+  --color-surface-2: oklch(0.24 0.015 265);
 
-  --color-ink: oklch(0.94 0.005 60);
-  --color-ink-soft: oklch(0.72 0.008 60);
-  --color-ink-faint: oklch(0.55 0.008 250);
+  --color-ink: oklch(0.95 0.005 265);
+  --color-ink-soft: oklch(0.74 0.010 265);
+  --color-ink-faint: oklch(0.58 0.012 265);
 
-  --color-rule: oklch(0.27 0.010 250);
-  --color-rule-strong: oklch(0.38 0.012 250);
+  --color-rule: oklch(0.30 0.016 265);
+  --color-rule-strong: oklch(0.42 0.020 265);
 
-  --color-accent: oklch(0.70 0.16 38);
-  --color-accent-soft: oklch(0.62 0.16 38);
-  --color-on-accent: oklch(0.14 0.008 250);
+  --color-primary: oklch(0.66 0.19 265);
+  --color-primary-soft: oklch(0.58 0.19 265);
+  --color-on-primary: oklch(0.99 0 0);
 
-  --color-highlight: oklch(0.78 0.13 85);
-  --color-highlight-ink: oklch(0.20 0.04 75);
+  --color-accent: oklch(0.68 0.20 25);
+  --color-accent-soft: oklch(0.60 0.20 25);
+  --color-on-accent: oklch(0.99 0 0);
 
-  --color-positive: oklch(0.70 0.12 150);
-  --color-warning: oklch(0.74 0.13 65);
-  --color-negative: oklch(0.66 0.16 25);
+  --color-highlight: oklch(0.84 0.16 95);
+  --color-highlight-ink: oklch(0.22 0.05 80);
+
+  --color-positive: oklch(0.72 0.14 150);
+  --color-warning: oklch(0.78 0.15 65);
+  --color-negative: oklch(0.68 0.20 25);
 }
 
 /* Honor reduced motion globally — components also check via hook. */

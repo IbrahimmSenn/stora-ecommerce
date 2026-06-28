@@ -24,6 +24,7 @@ import { useAuth } from '../auth/useAuth'
 import { api, ApiError, formatPrice } from '../lib/api'
 import type { CheckoutRequest, ShippingMethod } from '../lib/api'
 import { Page } from '../components/Page'
+import { Seo } from '../components/Seo'
 import { Masthead } from '../components/Masthead'
 import { useTheme } from '../lib/theme'
 import { getStripe, stripeAppearance } from '../payment/stripe'
@@ -94,8 +95,9 @@ export function CheckoutPage() {
   if (loading) {
     return (
       <Page width="max-w-6xl">
-        <Masthead number="03" eyebrow="Checkout" title="Review." />
-        <p className="text-sm text-ink-soft">Loading.</p>
+        <Seo title="Checkout" noindex />
+        <Masthead eyebrow="Checkout" title="Checkout" />
+        <p className="text-sm text-ink-soft">Loading…</p>
       </Page>
     )
   }
@@ -104,16 +106,15 @@ export function CheckoutPage() {
     return (
       <Page width="max-w-4xl">
         <Masthead
-          number="03"
           eyebrow="Checkout"
-          title="Nothing to check out."
-          caption="Your cart is empty."
+          title="Your cart is empty"
+          caption="Add items to your cart before checking out."
         />
         <Link
           to="/"
           className="text-sm text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors"
         >
-          Back to the shop.
+          Continue shopping
         </Link>
       </Page>
     )
@@ -123,10 +124,9 @@ export function CheckoutPage() {
     return (
       <Page width="max-w-4xl">
         <Masthead
-          number="03"
           eyebrow="Checkout"
-          title="Couldn't start."
-          caption={configError ?? 'Loading payment provider.'}
+          title="Checkout unavailable"
+          caption={configError ?? 'Loading payment provider…'}
         />
       </Page>
     )
@@ -348,7 +348,6 @@ function CheckoutInner() {
   return (
     <Page width="max-w-6xl">
       <Masthead
-        number="03"
         eyebrow="Checkout"
         title="Review and pay."
         caption="A single page. Contact, address, shipping, payment. One submit."
@@ -386,7 +385,7 @@ function CheckoutInner() {
             </div>
           )}
 
-          <Section number="01" title="Contact">
+          <Section title="Contact">
             <CField
               label="Email"
               error={err('email')}
@@ -419,7 +418,7 @@ function CheckoutInner() {
             />
           </Section>
 
-          <Section number="02" title="Shipping address">
+          <Section title="Shipping address">
             <CField
               label="Recipient name"
               error={err('recipient_name')}
@@ -528,7 +527,7 @@ function CheckoutInner() {
             </div>
           </Section>
 
-          <Section number="03" title="Shipping method">
+          <Section title="Shipping method">
             <div className="space-y-2">
               {SHIPPING_OPTIONS.map((opt) => {
                 const active = form.shipping_method === opt.id
@@ -563,7 +562,7 @@ function CheckoutInner() {
             </div>
           </Section>
 
-          <Section number="04" title="Payment">
+          <Section title="Payment">
             <div className="bg-raised px-5 py-5 border border-rule-strong">
               <PaymentElement options={{ layout: 'tabs' }} />
             </div>
@@ -676,23 +675,15 @@ function CheckoutInner() {
 }
 
 function Section({
-  number,
   title,
   children,
 }: {
-  number: string
   title: string
   children: React.ReactNode
 }) {
   return (
     <section className="mb-12">
-      <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6">
-        <span className="tnum">{number}</span>
-        <span aria-hidden className="text-rule-strong mx-2">
-          /
-        </span>
-        {title}
-      </h2>
+      <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6">{title}</h2>
       <div className="space-y-6">{children}</div>
     </section>
   )

@@ -23,12 +23,15 @@ type NavSearchProps = {
    *  the nav-bar collapsed/focused widths. Used inside the side panel where
    *  the surface is too narrow for the desktop expand-to-20rem behaviour. */
   fullWidth?: boolean
+  /** Render as a full-width rounded pill with a coloured search button — the
+   *  marketplace header treatment. Implies full width. */
+  prominent?: boolean
   /** Called after a successful navigation (suggestion select or query
    *  commit). The side panel uses this to close itself. */
   onCommit?: () => void
 }
 
-export function NavSearch({ fullWidth = false, onCommit }: NavSearchProps = {}) {
+export function NavSearch({ fullWidth = false, prominent = false, onCommit }: NavSearchProps = {}) {
   const navigate = useNavigate()
   const id = useId()
   const wrapperRef = useRef<HTMLDivElement | null>(null)
@@ -138,6 +141,78 @@ export function NavSearch({ fullWidth = false, onCommit }: NavSearchProps = {}) 
 
   const listOpen = focused && query.trim() !== '' && suggestions.length > 0
   const listboxId = `${id}-listbox`
+
+  if (prominent) {
+    return (
+      <div ref={wrapperRef} className="relative w-full">
+        <div className="flex items-stretch w-full rounded-md overflow-hidden bg-surface ring-1 ring-rule focus-within:ring-2 focus-within:ring-highlight transition-shadow">
+          <input
+            ref={inputRef}
+            type="text"
+            role="combobox"
+            aria-expanded={listOpen}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-activedescendant={
+              activeIndex >= 0 ? `${id}-option-${activeIndex}` : undefined
+            }
+            aria-label="Search products"
+            placeholder="Search products"
+            value={query}
+            onChange={handleChange}
+            onFocus={() => setFocused(true)}
+            onKeyDown={onKeyDown}
+            className="flex-1 min-w-0 bg-transparent text-sm text-ink px-4 py-2.5 placeholder:text-ink-faint focus:outline-none"
+          />
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              if (activeIndex >= 0 && activeIndex < suggestions.length) {
+                commitSuggestion(suggestions[activeIndex])
+              } else {
+                commitQuery()
+              }
+            }}
+            aria-label="Search"
+            className="shrink-0 inline-flex items-center justify-center px-4 bg-highlight text-highlight-ink hover:brightness-95 transition cursor-pointer"
+          >
+            <Search size={18} strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+
+        {listOpen && (
+          <ul
+            id={listboxId}
+            role="listbox"
+            className="absolute left-0 right-0 top-full mt-1 z-40 bg-surface border border-rule rounded-md overflow-hidden shadow-[0_8px_24px_oklch(0.2_0.01_265/0.18)]"
+          >
+            {suggestions.map((s, i) => {
+              const active = i === activeIndex
+              return (
+                <li
+                  id={`${id}-option-${i}`}
+                  key={s.id}
+                  role="option"
+                  aria-selected={active}
+                  onMouseEnter={() => setActiveIndex(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    commitSuggestion(s)
+                  }}
+                  className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+                    active ? 'bg-sunken text-ink' : 'text-ink-soft hover:text-ink'
+                  } ${i < suggestions.length - 1 ? 'border-b border-rule' : ''}`}
+                >
+                  {s.name}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div ref={wrapperRef} className={`relative ${fullWidth ? 'w-full' : ''}`}>

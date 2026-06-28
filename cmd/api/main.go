@@ -3,11 +3,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,13 +22,18 @@ import (
 	"github.com/stripe/stripe-go/v76"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/address"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/audit"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/brand"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/category"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/config"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/contact"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/imageproc"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/messaging"
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
@@ -37,6 +44,9 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/recommend"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/review"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/seed"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/tlsutil"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
 
@@ -49,7 +59,17 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("parse database url: %v", err)
+	}
+	poolCfg.MaxConns = int32(cfg.DBMaxConns)
+	poolCfg.MinConns = int32(cfg.DBMinConns)
+	poolCfg.MaxConnLifetime = cfg.DBMaxConnLifetime
+	poolCfg.MaxConnIdleTime = cfg.DBMaxConnIdleTime
+	poolCfg.HealthCheckPeriod = time.Minute
+
+	db, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
 	}
@@ -69,6 +89,14 @@ func main() {
 	encryptor, err := crypto.NewEncryptor(cfg.EncryptionKey)
 	if err != nil {
 		log.Fatalf("init encryptor: %v", err)
+	}
+
+	// Demo users (encrypted email) + their reviews are seeded by the app outside
+	// production, since AES-GCM email ciphertext can't be produced in seed.sql.
+	if cfg.AppEnv != "production" {
+		seedCtx, seedCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		seed.Demo(seedCtx, db, encryptor)
+		seedCancel()
 	}
 
 	stripe.Key = cfg.StripeSecretKey
@@ -96,17 +124,36 @@ func main() {
 
 	paymentsEventPublisher := payments.NewAmqpPublisher(amqpPublisher)
 
-	userRepo := user.NewUserRepository(db)
+	userRepo := user.NewUserRepository(db, encryptor)
 	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier)
 	userHandler := user.NewHandler(userService)
 
-	authRepo := auth.NewAuthRepository(db)
+	authRepo := auth.NewAuthRepository(db, encryptor)
 	authService := auth.NewService(userRepo, authRepo, cfg.JWTSecret,
 		auth.WithMailer(mail),
 		auth.WithBaseURL(cfg.BaseURL),
 		auth.WithBcryptCost(cfg.BcryptCost),
 	)
 	authHandler := auth.NewHandler(authService, cfg.CookieSecure)
+
+	auditRecorder := audit.NewRecorder(db, encryptor)
+
+	// 2FA enforcement for staff: resolves whether a user has 2FA enabled.
+	// Injected into RequireStaff2FA so middleware stays decoupled from auth.
+	twoFactorChecker := mw.TwoFactorChecker(func(ctx context.Context, userID string) (bool, error) {
+		tfa, err := authRepo.Get2FAByUserID(ctx, userID)
+		if errors.Is(err, auth.Err2FANotEnabled) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return tfa.IsEnabled, nil
+	})
+
+	contactHandler := contact.NewHandler(contact.NewService(mail, cfg.SMTPFrom))
+
+	addressHandler := address.NewHandler(address.NewService(address.NewRepository(db, encryptor)))
 
 	brandRepo := brand.NewRepository(db)
 	brandService := brand.NewService(brandRepo)
@@ -119,9 +166,18 @@ func main() {
 	activityRepo := activity.NewRepository(db)
 	activityService := activity.NewService(activityRepo)
 
+	imageProcessor, err := imageproc.New(cfg.UploadDir, "/media")
+	if err != nil {
+		log.Fatalf("init image processor: %v", err)
+	}
+
 	productRepo := product.NewRepository(db)
-	productService := product.NewService(productRepo)
+	productService := product.NewService(productRepo, product.WithImageProcessor(imageProcessor))
 	productHandler := product.NewHandler(productService, activityService)
+
+	reviewRepo := review.NewRepository(db)
+	reviewService := review.NewService(reviewRepo)
+	reviewHandler := review.NewHandler(reviewService)
 
 	cartRepo := cart.NewRepository(db)
 	cartService := cart.NewService(cartRepo, productRepo, activityService)
@@ -246,13 +302,25 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	// HSTS only in production (behind real HTTPS) — sending it over the dev
+	// HTTP listener would pin browsers to https://localhost and break local dev.
+	r.Use(mw.SecurityHeaders(cfg.AppEnv == "production"))
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://*", "http://*"},
+		AllowedOrigins:   cfg.CORSOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+
+	// --- Rate limiting (token bucket, per client IP) ---
+	// A loose global limiter is the safety net for every route; a strict
+	// limiter guards the brute-forceable auth endpoints. RealIP (above) has
+	// already resolved the client address into RemoteAddr. Limits are env-tunable
+	// (e.g. relaxed for load tests) via RATE_LIMIT_* / AUTH_RATE_LIMIT_*.
+	generalLimiter := mw.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+	authLimiter := mw.NewRateLimiter(cfg.AuthRateLimitRPS, cfg.AuthRateLimitBurst)
+	r.Use(generalLimiter.Middleware)
 
 	// --- Frontend (React SPA built into web/dist) ---
 	// Static assets and the SPA fallback share one handler below — see the
@@ -273,12 +341,23 @@ func main() {
 		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	// --- Auth routes (no token required) ---
-	r.Post("/api/v1/auth/register", userHandler.Register)
-	r.Post("/api/v1/auth/login", authHandler.Login)
-	r.Post("/api/v1/auth/refresh", authHandler.Refresh)
-	r.Post("/api/v1/auth/forgot-password", authHandler.ForgotPassword)
-	r.Post("/api/v1/auth/reset-password", authHandler.ResetPassword)
+	// Public contact/support form.
+	r.Post("/api/v1/contact", contactHandler.Submit)
+
+	// --- Uploaded product image variants (served from the upload volume) ---
+	mediaFS := http.StripPrefix("/media/", http.FileServer(http.Dir(cfg.UploadDir)))
+	r.Handle("/media/*", mediaFS)
+
+	// --- Auth routes (no token required; strict rate limit against brute force) ---
+	r.Group(func(r chi.Router) {
+		r.Use(authLimiter.Middleware)
+
+		r.Post("/api/v1/auth/register", userHandler.Register)
+		r.Post("/api/v1/auth/login", authHandler.Login)
+		r.Post("/api/v1/auth/refresh", authHandler.Refresh)
+		r.Post("/api/v1/auth/forgot-password", authHandler.ForgotPassword)
+		r.Post("/api/v1/auth/reset-password", authHandler.ResetPassword)
+	})
 
 	// --- OAuth (public) ---
 	r.Get("/api/v1/auth/oauth/{provider}", oauthHandler.Redirect)
@@ -303,6 +382,9 @@ func main() {
 		r.Get("/api/v1/products", productHandler.Search)
 		r.Get("/api/v1/products/suggest", productHandler.Suggest)
 		r.Get("/api/v1/products/{id}", productHandler.GetByID)
+
+		// Public review list (viewer read from optional auth for vote/own flags).
+		r.Get("/api/v1/products/{id}/reviews", reviewHandler.List)
 	})
 	r.Get("/api/v1/categories", categoryHandler.ListTree)
 	r.Get("/api/v1/categories/{slug}", categoryHandler.GetBySlug)
@@ -343,21 +425,87 @@ func main() {
 
 		r.Get("/api/v1/cart/merge-status", cartHandler.GetMergeStatus)
 		r.Post("/api/v1/cart/merge", cartHandler.PostMerge)
+
+		// --- Reviews (auth required: purchase-gated submission + helpful votes) ---
+		r.Post("/api/v1/products/{id}/reviews", reviewHandler.Create)
+		r.Get("/api/v1/products/{id}/reviews/eligibility", reviewHandler.Eligibility)
+		r.Post("/api/v1/reviews/{id}/helpful", reviewHandler.Vote)
+		r.Delete("/api/v1/reviews/{id}/helpful", reviewHandler.Unvote)
+
+		// --- Saved addresses (auth required; owner-scoped) ---
+		r.Get("/api/v1/addresses", addressHandler.List)
+		r.Post("/api/v1/addresses", addressHandler.Create)
+		r.Put("/api/v1/addresses/{id}", addressHandler.Update)
+		r.Delete("/api/v1/addresses/{id}", addressHandler.Delete)
+		r.Post("/api/v1/addresses/{id}/default", addressHandler.SetDefault)
 	})
 
-	// --- Admin routes (valid token + role=admin required) ---
+	// --- Admin routes (valid token + staff role + enforced 2FA + audited) ---
+	// The whole admin surface requires a staff role and 2FA; mutations are
+	// audited. Individual sub-groups narrow access by least privilege.
 	r.Group(func(r chi.Router) {
 		r.Use(mw.Auth(tokenValidator))
-		r.Use(mw.IsAdmin)
+		r.Use(mw.RequireRole(mw.RoleAdmin, mw.RoleSupport, mw.RoleSales))
+		r.Use(mw.RequireStaff2FA(twoFactorChecker))
+		r.Use(audit.Middleware(auditRecorder))
 
-		r.Post("/api/v1/admin/products", productHandler.Create)
-		r.Put("/api/v1/admin/products/{id}", productHandler.Update)
-		r.Delete("/api/v1/admin/products/{id}", productHandler.Delete)
-		r.Post("/api/v1/admin/products/{id}/images", productHandler.AddImage)
-		r.Delete("/api/v1/admin/products/{id}/images/{imageId}", productHandler.DeleteImage)
+		// Probe used by the admin SPA to gate the dashboard: reaching it means
+		// the caller is staff with 2FA enabled. Returns the role so the UI can
+		// show only the sections that role may use.
+		r.Get("/api/v1/admin/me", func(w http.ResponseWriter, req *http.Request) {
+			role, _ := req.Context().Value(ctxkey.Role).(string)
+			email, _ := req.Context().Value(ctxkey.Email).(string)
+			response.JSON(w, http.StatusOK, map[string]string{"role": role, "email": email})
+		})
 
-		r.Post("/api/v1/admin/categories", categoryHandler.Create)
-		r.Post("/api/v1/admin/brands", brandHandler.Create)
+		// Catalog management — admin + sales.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireRole(mw.RoleAdmin, mw.RoleSales))
+
+			r.Post("/api/v1/admin/products", productHandler.Create)
+			r.Post("/api/v1/admin/products/bulk", productHandler.BulkUpload)
+			r.Put("/api/v1/admin/products/{id}", productHandler.Update)
+			r.Delete("/api/v1/admin/products/{id}", productHandler.Delete)
+			r.Post("/api/v1/admin/products/{id}/images", productHandler.AddImage)
+			r.Post("/api/v1/admin/products/{id}/images/upload", productHandler.UploadImage)
+			r.Delete("/api/v1/admin/products/{id}/images/{imageId}", productHandler.DeleteImage)
+
+			r.Post("/api/v1/admin/categories", categoryHandler.Create)
+			r.Post("/api/v1/admin/brands", brandHandler.Create)
+		})
+
+		// Order management + review moderation — admin + support.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireRole(mw.RoleAdmin, mw.RoleSupport))
+
+			r.Get("/api/v1/admin/orders", ordersHandler.AdminList)
+			r.Get("/api/v1/admin/orders/{id}", ordersHandler.AdminGet)
+			r.Patch("/api/v1/admin/orders/{id}/status", ordersHandler.AdminUpdateStatus)
+			r.Post("/api/v1/admin/orders/{id}/refund", ordersHandler.AdminRefund)
+
+			r.Get("/api/v1/admin/reviews", reviewHandler.ListModeration)
+			r.Patch("/api/v1/admin/reviews/{id}", reviewHandler.SetStatus)
+			r.Delete("/api/v1/admin/reviews/{id}", reviewHandler.Delete)
+		})
+
+		// User management + audit log — admin only.
+		r.Group(func(r chi.Router) {
+			r.Use(mw.RequireRole(mw.RoleAdmin))
+
+			r.Get("/api/v1/admin/users", userHandler.AdminList)
+			r.Patch("/api/v1/admin/users/{id}/role", userHandler.AdminSetRole)
+
+			r.Get("/api/v1/admin/audit-log", func(w http.ResponseWriter, req *http.Request) {
+				page, _ := strconv.Atoi(req.URL.Query().Get("page"))
+				pageSize, _ := strconv.Atoi(req.URL.Query().Get("page_size"))
+				entries, total, err := auditRecorder.List(req.Context(), page, pageSize)
+				if err != nil {
+					response.Error(w, http.StatusInternalServerError, "could not load audit log")
+					return
+				}
+				response.JSON(w, http.StatusOK, map[string]interface{}{"entries": entries, "total": total})
+			})
+		})
 	})
 
 	// --- SPA fallback with static-file passthrough ---
@@ -380,6 +528,14 @@ func main() {
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: r,
+		// Timeouts bound how long a connection can tie up a goroutine — the
+		// front line against slow-loris. WriteTimeout sits just above the 30s
+		// per-request middleware timeout so legitimate slow requests still finish.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       20 * time.Second,
+		WriteTimeout:      35 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -391,6 +547,31 @@ func main() {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
+
+	// --- Optional HTTPS listener (self-signed cert auto-generated) ---
+	// Runs alongside HTTP so the Vite dev proxy, Stripe CLI, and healthcheck on
+	// the plain port keep working while HTTPS is demonstrable on TLS_PORT.
+	var tlsSrv *http.Server
+	if cfg.TLSEnabled {
+		if err := tlsutil.EnsureSelfSigned(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+			log.Fatalf("tls cert: %v", err)
+		}
+		tlsSrv = &http.Server{
+			Addr:              ":" + cfg.TLSPort,
+			Handler:           r,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       20 * time.Second,
+			WriteTimeout:      35 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20,
+		}
+		go func() {
+			log.Printf("https server running on port %s (self-signed)", cfg.TLSPort)
+			if err := tlsSrv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("https server error: %v", err)
+			}
+		}()
+	}
 
 	<-shutdownCtx.Done()
 
@@ -406,6 +587,12 @@ func main() {
 	case <-consumerDone:
 	case <-timeoutCtx.Done():
 		log.Println("consumer drain timed out")
+	}
+
+	if tlsSrv != nil {
+		if err := tlsSrv.Shutdown(timeoutCtx); err != nil {
+			log.Printf("https server shutdown error: %v", err)
+		}
 	}
 
 	if err := srv.Shutdown(timeoutCtx); err != nil {

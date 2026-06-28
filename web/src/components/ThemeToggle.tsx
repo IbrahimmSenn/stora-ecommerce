@@ -8,7 +8,7 @@
 import { useTheme } from '../lib/theme'
 import { Moon, Sun } from './icons'
 
-export function ThemeToggle() {
+export function ThemeToggle({ onDark = false }: { onDark?: boolean } = {}) {
   const { theme, toggle } = useTheme()
   const isDark = theme === 'dark'
   const Icon = isDark ? Sun : Moon
@@ -19,7 +19,11 @@ export function ThemeToggle() {
       type="button"
       onClick={toggle}
       aria-label={`Switch to ${next} mode`}
-      className="inline-flex h-9 w-9 items-center justify-center border border-rule text-ink hover:border-accent hover:text-accent transition-colors cursor-pointer"
+      className={`inline-flex h-9 w-9 items-center justify-center border transition-colors cursor-pointer ${
+        onDark
+          ? 'border-on-primary/30 text-on-primary hover:border-on-primary'
+          : 'border-rule text-ink hover:border-accent hover:text-accent'
+      }`}
     >
       <Icon size={16} strokeWidth={1.5} aria-hidden />
     </button>

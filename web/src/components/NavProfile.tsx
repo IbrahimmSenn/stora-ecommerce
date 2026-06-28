@@ -12,7 +12,7 @@ import { useAuth } from '../auth/useAuth'
 import { useCart } from '../cart/useCart'
 import { User } from './icons'
 
-export function NavProfile() {
+export function NavProfile({ onDark = false }: { onDark?: boolean } = {}) {
   const { isAuthed, email, logout } = useAuth()
   const { refresh } = useCart()
   const navigate = useNavigate()
@@ -73,7 +73,15 @@ export function NavProfile() {
           isAuthed && email
             ? 'w-10 md:w-auto md:px-2'
             : 'w-10 md:w-9'
-        } ${open ? 'text-ink' : 'text-ink-soft hover:text-ink'}`}
+        } ${
+          onDark
+            ? open
+              ? 'text-on-primary'
+              : 'text-on-primary/80 hover:text-on-primary'
+            : open
+              ? 'text-ink'
+              : 'text-ink-soft hover:text-ink'
+        }`}
       >
         {isAuthed && email && (
           <span className="hidden md:inline text-xs max-w-[14rem] truncate">

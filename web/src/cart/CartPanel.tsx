@@ -166,7 +166,7 @@ function PanelContent({
           <h2
             className="font-display text-xl text-ink leading-none font-bold"
           >
-            Added.
+            Added to cart
           </h2>
         </div>
         <button

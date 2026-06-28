@@ -82,7 +82,7 @@ export function CartPage() {
   if (loading) {
     return (
       <Page width="max-w-4xl">
-        <Masthead number="02" eyebrow="Bag" title="Cart." />
+        <Masthead eyebrow="Cart" title="Your cart" />
         <p className="text-sm text-ink-soft">Loading.</p>
       </Page>
     )
@@ -91,7 +91,7 @@ export function CartPage() {
   if (error) {
     return (
       <Page width="max-w-4xl">
-        <Masthead number="02" eyebrow="Bag" title="Cart." />
+        <Masthead eyebrow="Cart" title="Your cart" />
         <p className="text-sm text-accent">{error}</p>
       </Page>
     )
@@ -101,17 +101,16 @@ export function CartPage() {
     return (
       <Page width="max-w-4xl">
         <Masthead
-          number="02"
-          eyebrow="Bag"
-          title="Empty."
-          caption="Nothing here yet. Browse the shop and add a few things."
+          eyebrow="Cart"
+          title="Your cart is empty"
+          caption="Your cart is empty. Browse products and add items to get started."
         />
         {notice && <Notice text={notice} />}
         <Link
           to="/"
           className="text-sm text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors"
         >
-          Back to the shop.
+          Continue shopping
         </Link>
       </Page>
     )
@@ -120,14 +119,13 @@ export function CartPage() {
   return (
     <Page width="max-w-4xl">
       <Masthead
-        number="02"
-        eyebrow="Bag"
-        title="Cart."
+        eyebrow="Cart"
+        title="Your cart"
         caption={
           <>
             <span className="tnum">{cart.items.length}</span>{' '}
-            {cart.items.length === 1 ? 'line' : 'lines'} held. Adjust quantities,
-            remove items, or proceed to checkout.
+            {cart.items.length === 1 ? 'item' : 'items'} in your cart. Adjust
+            quantities, remove items, or proceed to checkout.
           </>
         }
       />

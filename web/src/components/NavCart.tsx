@@ -11,7 +11,7 @@ import { useCart } from '../cart/useCart'
 import { useReducedMotion } from '../lib/motion'
 import { ShoppingBag } from './icons'
 
-export function NavCart() {
+export function NavCart({ onDark = false }: { onDark?: boolean } = {}) {
   const { itemCount } = useCart()
   const reduced = useReducedMotion()
   const [pulse, setPulse] = useState(false)
@@ -41,7 +41,13 @@ export function NavCart() {
       aria-label={label}
       className={({ isActive }) =>
         `relative inline-flex h-10 w-10 md:h-9 md:w-9 items-center justify-center transition-colors ${
-          isActive ? 'text-ink' : 'text-ink-soft hover:text-ink'
+          onDark
+            ? isActive
+              ? 'text-on-primary'
+              : 'text-on-primary/80 hover:text-on-primary'
+            : isActive
+              ? 'text-ink'
+              : 'text-ink-soft hover:text-ink'
         }`
       }
     >

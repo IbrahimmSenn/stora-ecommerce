@@ -1,13 +1,11 @@
 import type { ReactNode } from 'react'
 
 type MastheadProps = {
-  /** Two-digit editorial marker, eg "01". Optional. */
-  number?: string
   /** Short eyebrow label above the title, set in small caps. Optional. */
   eyebrow?: string
   /** Page title — set in the display face, weighty. */
   title: ReactNode
-  /** Optional caption beneath the title — calm body face. */
+  /** Optional caption beneath the title. */
   caption?: ReactNode
   /** Slot for right-aligned content (filters, actions). */
   aside?: ReactNode
@@ -15,11 +13,10 @@ type MastheadProps = {
 }
 
 /**
- * Masthead is the editorial header for a route. Left-aligned, asymmetric;
- * the numeric marker and eyebrow sit above the title in small caps.
+ * Masthead is the header for a route: a small eyebrow label above a weighty
+ * title, with an optional caption and right-aligned aside.
  */
 export function Masthead({
-  number,
   eyebrow,
   title,
   caption,
@@ -28,27 +25,19 @@ export function Masthead({
 }: MastheadProps) {
   return (
     <header
-      className={`mb-12 lg:mb-20 flex items-end justify-between gap-8 ${className}`}
+      className={`mb-8 lg:mb-12 flex items-end justify-between gap-8 ${className}`}
     >
       <div className="min-w-0">
-        {(number || eyebrow) && (
-          <div className="uc-tight text-[0.7rem] text-ink-faint mb-4 flex items-baseline gap-3">
-            {number && <span className="tnum">{number}</span>}
-            {number && eyebrow && (
-              <span aria-hidden className="text-rule-strong">
-                /
-              </span>
-            )}
-            {eyebrow && <span>{eyebrow}</span>}
-          </div>
+        {eyebrow && (
+          <p className="uc-tight text-[0.7rem] text-ink-faint mb-3">{eyebrow}</p>
         )}
         <h1
-          className="font-display text-[clamp(2.25rem,6vw,4rem)] leading-[0.95] tracking-[-0.02em] text-ink font-bold"
+          className="font-display text-[clamp(1.9rem,5vw,3rem)] leading-[1.0] tracking-[-0.02em] text-ink font-bold"
         >
           {title}
         </h1>
         {caption && (
-          <p className="mt-4 text-ink-soft max-w-[55ch] text-[0.95rem] leading-relaxed">
+          <p className="mt-3 text-ink-soft max-w-[60ch] text-[0.95rem] leading-relaxed">
             {caption}
           </p>
         )}

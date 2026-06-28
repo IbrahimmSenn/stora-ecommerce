@@ -95,7 +95,6 @@ export function TokenTesterPage() {
   return (
     <Page width="max-w-4xl">
       <Masthead
-        number="01"
         eyebrow="Developer"
         title="Token rotation tester."
         caption="Demonstrates single-use refresh tokens and replay detection. Log in, rotate, then paste an old refresh token to confirm the server invalidates the family."
@@ -104,7 +103,7 @@ export function TokenTesterPage() {
       <section className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-x-12 gap-y-8 mb-12">
         <div className="space-y-6">
           <div className="uc-tight text-[0.7rem] text-ink-faint">
-            <span className="tnum">01</span> · Login
+            Login
           </div>
           <Field
             label="Email"
@@ -124,7 +123,7 @@ export function TokenTesterPage() {
 
         <div className="space-y-6">
           <div className="uc-tight text-[0.7rem] text-ink-faint">
-            <span className="tnum">02</span> · Tokens
+            Tokens
           </div>
           <div>
             <p className="uc-tight text-[0.7rem] text-ink-faint mb-1">
@@ -150,7 +149,7 @@ export function TokenTesterPage() {
 
       <section className="border-t border-rule pt-8 mb-12">
         <div className="uc-tight text-[0.7rem] text-ink-faint mb-4">
-          <span className="tnum">03</span> · Replay
+          Replay
         </div>
         <p className="text-sm text-ink-soft max-w-[55ch] mb-4">
           Paste any old refresh token (eg copy the value before clicking{' '}
@@ -171,7 +170,7 @@ export function TokenTesterPage() {
 
       <section className="border-t border-rule pt-8">
         <div className="uc-tight text-[0.7rem] text-ink-faint mb-4">
-          <span className="tnum">04</span> · Log
+          Log
         </div>
         <pre className="bg-raised border border-rule px-3 py-3 text-xs font-mono leading-relaxed text-ink-soft min-h-[10rem] max-h-[24rem] overflow-auto whitespace-pre-wrap">
           {log.length === 0 ? 'No activity yet.' : log.join('\n')}

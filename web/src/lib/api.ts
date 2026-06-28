@@ -72,10 +72,42 @@ export type ProductListItem = {
   id: string
   name: string
   price: number
+  sale_price?: number | null
   stock_quantity: number
   category_name?: string | null
   brand_name?: string | null
   primary_image?: string | null
+  avg_rating: number
+  review_count: number
+}
+
+export type PublicReview = {
+  id: string
+  rating: number
+  comment?: string | null
+  helpful_count: number
+  voted_by_me: boolean
+  mine_to_edit: boolean
+  created_at: string
+}
+
+export type ReviewListResult = {
+  reviews: PublicReview[]
+  total: number
+  page: number
+  page_size: number
+  avg_rating: number
+  distribution: Record<string, number>
+}
+
+export type ReviewSort = 'helpful' | 'newest' | 'highest' | 'lowest'
+
+export type ReviewEligibility = {
+  can_review: boolean
+  has_purchased: boolean
+  already_reviewed: boolean
+  existing_rating?: number | null
+  existing_pending: boolean
 }
 
 export type ProductsResponse = {
@@ -138,6 +170,7 @@ export type AdminProduct = {
   name: string
   description?: string | null
   price: number
+  sale_price?: number | null
   stock_quantity: number
   category_id?: string | null
   brand_id?: string | null
@@ -153,6 +186,9 @@ export type ProductImage = {
   id: string
   product_id: string
   url: string
+  thumbnail_url?: string | null
+  card_url?: string | null
+  full_url?: string | null
   is_primary: boolean
 }
 
@@ -256,11 +292,103 @@ export type CreateIntentResponse = {
   payment_intent_id: string
 }
 
+export type SavedAddress = {
+  id: string
+  label?: string | null
+  recipient_name: string
+  line1: string
+  line2?: string
+  city: string
+  region: string
+  postal_code: string
+  country: string
+  is_default: boolean
+  created_at: string
+}
+
+export type SavedAddressInput = {
+  label?: string
+  recipient_name: string
+  line1: string
+  line2?: string
+  city: string
+  region: string
+  postal_code: string
+  country: string
+  is_default?: boolean
+}
+
+export type AdminMe = { role: string; email: string }
+
+export type AdminOrderSummary = OrderSummary & {
+  email: string
+  is_guest: boolean
+}
+
+export type AdminOrderList = {
+  orders: AdminOrderSummary[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type AdminUser = {
+  id: string
+  email: string
+  role: string
+  created_at: string
+}
+
+export type AdminUserList = {
+  users: AdminUser[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type UserRole = 'admin' | 'support' | 'sales' | 'customer'
+
+export type ModerationReview = {
+  id: string
+  product_id: string
+  product_name: string
+  rating: number
+  comment?: string | null
+  status: 'pending' | 'approved' | 'hidden'
+  created_at: string
+}
+
+export type BulkUploadResult = {
+  created: number
+  failed: number
+  errors: { index: number; name?: string; error: string }[]
+}
+
+export type AuditEntry = {
+  id: number
+  actor_email?: string | null
+  actor_role?: string | null
+  action: string
+  target: string
+  status_code: number
+  ip?: string | null
+  occurred_at: string
+}
+
 export const api = {
-  listProducts: (params?: { categoryId?: string; q?: string }) => {
+  listProducts: (params?: {
+    categoryId?: string
+    q?: string
+    pageSize?: number
+    onSale?: boolean
+    sort?: string
+  }) => {
     const qs = new URLSearchParams()
     if (params?.categoryId) qs.set('category_id', params.categoryId)
     if (params?.q) qs.set('q', params.q)
+    if (params?.pageSize) qs.set('page_size', String(params.pageSize))
+    if (params?.onSale) qs.set('on_sale', 'true')
+    if (params?.sort) qs.set('sort', params.sort)
     const s = qs.toString()
     return request<ProductsResponse>(`/api/v1/products${s ? `?${s}` : ''}`)
   },
@@ -326,7 +454,10 @@ export const api = {
   getProduct: (id: string) => request<ProductDetail>(`/api/v1/products/${id}`),
   adminCreateProduct: (body: Partial<AdminProduct>) =>
     request<AdminProduct>('/api/v1/admin/products', { method: 'POST', body }),
-  adminUpdateProduct: (id: string, body: Partial<AdminProduct>) =>
+  adminUpdateProduct: (
+    id: string,
+    body: Partial<AdminProduct> & { clear_sale_price?: boolean },
+  ) =>
     request<AdminProduct>(`/api/v1/admin/products/${id}`, { method: 'PUT', body }),
   adminDeleteProduct: (id: string) =>
     request<void>(`/api/v1/admin/products/${id}`, { method: 'DELETE' }),
@@ -339,6 +470,27 @@ export const api = {
     request<void>(`/api/v1/admin/products/${productId}/images/${imageId}`, {
       method: 'DELETE',
     }),
+  adminUploadProductImage: async (
+    productId: string,
+    file: File,
+    isPrimary = false,
+  ): Promise<ProductImage> => {
+    const form = new FormData()
+    form.append('image', file)
+    form.append('is_primary', String(isPrimary))
+    const res = await fetch(`/api/v1/admin/products/${productId}/images/upload`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      body: form,
+    })
+    const text = await res.text()
+    const data = text ? JSON.parse(text) : null
+    if (!res.ok) {
+      throw new ApiError(res.status, data?.error ?? `upload failed (${res.status})`, data?.code)
+    }
+    return data as ProductImage
+  },
   listCategories: () => request<Category[]>('/api/v1/categories'),
   getCategoryBySlug: (slug: string) =>
     request<Category>(`/api/v1/categories/${encodeURIComponent(slug)}`),
@@ -387,8 +539,107 @@ export const api = {
     }),
   recommendations: (limit = 4) =>
     request<{ items: ProductListItem[] }>(`/api/v1/recommendations?limit=${limit}`),
+  submitContact: (body: { name: string; email: string; subject: string; message: string }) =>
+    request<{ message: string }>('/api/v1/contact', { method: 'POST', body }),
+  // --- Saved addresses ---
+  listAddresses: () =>
+    request<{ addresses: SavedAddress[] }>('/api/v1/addresses'),
+  createAddress: (body: SavedAddressInput) =>
+    request<SavedAddress>('/api/v1/addresses', { method: 'POST', body }),
+  updateAddress: (id: string, body: SavedAddressInput) =>
+    request<SavedAddress>(`/api/v1/addresses/${id}`, { method: 'PUT', body }),
+  deleteAddress: (id: string) =>
+    request<{ message: string }>(`/api/v1/addresses/${id}`, { method: 'DELETE' }),
+  setDefaultAddress: (id: string) =>
+    request<{ message: string }>(`/api/v1/addresses/${id}/default`, { method: 'POST' }),
+  // --- Reviews ---
+  listReviews: (productId: string, sort: ReviewSort = 'helpful', page = 1) => {
+    const q = new URLSearchParams({ sort, page: String(page) })
+    return request<ReviewListResult>(`/api/v1/products/${productId}/reviews?${q}`)
+  },
+  reviewEligibility: (productId: string) =>
+    request<ReviewEligibility>(`/api/v1/products/${productId}/reviews/eligibility`),
+  createReview: (productId: string, rating: number, comment?: string) =>
+    request<PublicReview>(`/api/v1/products/${productId}/reviews`, {
+      method: 'POST',
+      body: { rating, comment: comment || undefined },
+    }),
+  voteHelpful: (reviewId: string, helpful: boolean) =>
+    request<{ voted: boolean }>(`/api/v1/reviews/${reviewId}/helpful`, {
+      method: helpful ? 'POST' : 'DELETE',
+    }),
+  // --- Admin ---
+  adminMe: () => request<AdminMe>('/api/v1/admin/me'),
+  adminListOrders: (params?: { status?: string; page?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.status) q.set('status', params.status)
+    if (params?.page) q.set('page', String(params.page))
+    const s = q.toString()
+    return request<AdminOrderList>(`/api/v1/admin/orders${s ? `?${s}` : ''}`)
+  },
+  adminGetOrder: (id: string) => request<OrderResponse>(`/api/v1/admin/orders/${id}`),
+  adminUpdateOrderStatus: (id: string, status: string) =>
+    request<OrderResponse>(`/api/v1/admin/orders/${id}/status`, {
+      method: 'PATCH',
+      body: { status },
+    }),
+  adminRefundOrder: (id: string) =>
+    request<OrderResponse>(`/api/v1/admin/orders/${id}/refund`, { method: 'POST' }),
+  adminListUsers: (page = 1) =>
+    request<AdminUserList>(`/api/v1/admin/users?page=${page}`),
+  adminSetUserRole: (id: string, role: UserRole) =>
+    request<{ role: string }>(`/api/v1/admin/users/${id}/role`, {
+      method: 'PATCH',
+      body: { role },
+    }),
+  adminListReviews: (status?: string) => {
+    const q = status ? `?status=${status}` : ''
+    return request<{ reviews: ModerationReview[]; total: number }>(`/api/v1/admin/reviews${q}`)
+  },
+  adminSetReviewStatus: (id: string, status: 'pending' | 'approved' | 'hidden') =>
+    request<{ status: string }>(`/api/v1/admin/reviews/${id}`, {
+      method: 'PATCH',
+      body: { status },
+    }),
+  adminDeleteReview: (id: string) =>
+    request<void>(`/api/v1/admin/reviews/${id}`, { method: 'DELETE' }),
+  adminBulkUploadJSON: (products: Partial<AdminProduct>[]) =>
+    request<BulkUploadResult>('/api/v1/admin/products/bulk', {
+      method: 'POST',
+      body: products,
+    }),
+  adminBulkUploadCSV: async (csv: string): Promise<BulkUploadResult> => {
+    const res = await fetch('/api/v1/admin/products/bulk', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'text/csv',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: csv,
+    })
+    const text = await res.text()
+    const data = text ? JSON.parse(text) : null
+    if (!res.ok) {
+      const msg = data?.error ?? `upload failed (${res.status})`
+      throw new ApiError(res.status, msg, data?.code)
+    }
+    return data as BulkUploadResult
+  },
+  adminListAudit: (page = 1) =>
+    request<{ entries: AuditEntry[]; total: number }>(`/api/v1/admin/audit-log?page=${page}`),
 }
 
 export function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`
+}
+
+// discountPercent returns the rounded percentage off when a valid sale price is
+// set, or null when there's no active discount. Used for deal badges.
+export function discountPercent(
+  price: number,
+  salePrice?: number | null,
+): number | null {
+  if (salePrice == null || salePrice <= 0 || salePrice >= price) return null
+  return Math.round(((price - salePrice) / price) * 100)
 }
