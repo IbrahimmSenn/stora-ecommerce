@@ -11,10 +11,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/passwordpolicy"
 )
 
 type UserService interface {
 	Register(ctx context.Context, req RegisterRequest) (*UserResponse, error)
+	AdminListUsers(ctx context.Context, page, pageSize int) (*AdminUserList, error)
+	AdminSetRole(ctx context.Context, userID, role string) error
 }
 
 type userService struct {
@@ -38,6 +41,9 @@ func NewService(repo UserRepository, cost int, captchaVerifier *captcha.Verifier
 
 func (s *userService) Register(ctx context.Context, req RegisterRequest) (*UserResponse, error) {
 	if err := s.validate.Struct(req); err != nil {
+		return nil, err
+	}
+	if err := passwordpolicy.Validate(req.Password); err != nil {
 		return nil, err
 	}
 

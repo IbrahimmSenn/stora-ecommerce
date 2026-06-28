@@ -25,3 +25,24 @@ type UserResponse struct {
 	Id    uuid.UUID `json:"id"`
 	Email string    `json:"email"`
 }
+
+// AdminUser is a user row for the admin users table.
+type AdminUser struct {
+	Id        uuid.UUID `json:"id"`
+	Email     string    `json:"email"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// AdminUserList wraps the admin users table with pagination metadata.
+type AdminUserList struct {
+	Users    []AdminUser `json:"users"`
+	Total    int         `json:"total"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"page_size"`
+}
+
+// SetRoleRequest is the body for assigning a user's role.
+type SetRoleRequest struct {
+	Role string `json:"role" validate:"required,oneof=admin support sales customer"`
+}

@@ -30,6 +30,7 @@ export function AdminBrandsPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh()
   }, [])
 
@@ -64,7 +65,6 @@ export function AdminBrandsPage() {
 
       <section className="max-w-xl mb-16">
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6">
-          <span className="tnum">01</span>
           <span aria-hidden className="text-rule-strong mx-2">
             /
           </span>
@@ -89,7 +89,6 @@ export function AdminBrandsPage() {
       <section>
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6 flex items-baseline justify-between">
           <span>
-            <span className="tnum">02</span>
             <span aria-hidden className="text-rule-strong mx-2">
               /
             </span>

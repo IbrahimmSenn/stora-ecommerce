@@ -62,6 +62,7 @@ export function AdminCategoriesPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh()
   }, [])
 
@@ -104,7 +105,6 @@ export function AdminCategoriesPage() {
 
       <section className="max-w-2xl mb-16">
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6">
-          <span className="tnum">01</span>
           <span aria-hidden className="text-rule-strong mx-2">
             /
           </span>
@@ -155,7 +155,6 @@ export function AdminCategoriesPage() {
       <section>
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6 flex items-baseline justify-between">
           <span>
-            <span className="tnum">02</span>
             <span aria-hidden className="text-rule-strong mx-2">
               /
             </span>

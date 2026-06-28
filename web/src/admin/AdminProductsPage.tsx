@@ -3,6 +3,7 @@ import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { Button } from '../components/Button'
 import { Field } from '../components/Field'
+import { BulkUploadPanel } from './BulkUploadPanel'
 import {
   api,
   ApiError,
@@ -16,6 +17,7 @@ import {
 type EditState = {
   name: string
   priceDollars: string
+  salePriceDollars: string
   stockQuantity: string
 }
 
@@ -23,6 +25,7 @@ type NewProductState = {
   name: string
   description: string
   priceDollars: string
+  salePriceDollars: string
   stockQuantity: string
   categoryId: string
   brandId: string
@@ -34,6 +37,7 @@ const emptyNewProduct: NewProductState = {
   name: '',
   description: '',
   priceDollars: '',
+  salePriceDollars: '',
   stockQuantity: '',
   categoryId: '',
   brandId: '',
@@ -106,6 +110,15 @@ export function AdminProductsPage() {
     }
   }, [])
 
+  async function reloadProducts() {
+    try {
+      const list = await api.adminListProducts()
+      setProducts(list.products)
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : 'Could not refresh products.')
+    }
+  }
+
   async function loadDetail(id: string) {
     setDetailBusy(true)
     setDetailError(null)
@@ -145,6 +158,7 @@ export function AdminProductsPage() {
     setEdit({
       name: p.name,
       priceDollars: (p.price / 100).toFixed(2),
+      salePriceDollars: p.sale_price != null ? (p.sale_price / 100).toFixed(2) : '',
       stockQuantity: String(p.stock_quantity),
     })
   }
@@ -171,6 +185,16 @@ export function AdminProductsPage() {
       setEditError('Name cannot be empty.')
       return
     }
+    const hasSale = edit.salePriceDollars.trim() !== ''
+    const saleCents = hasSale ? Math.round(parseFloat(edit.salePriceDollars) * 100) : null
+    if (hasSale && (!Number.isFinite(saleCents!) || saleCents! < 0)) {
+      setEditError('Sale price must be a non-negative number.')
+      return
+    }
+    if (hasSale && saleCents! >= priceCents) {
+      setEditError('Sale price must be below the regular price.')
+      return
+    }
     setEditBusy(true)
     setEditError(null)
     try {
@@ -178,6 +202,7 @@ export function AdminProductsPage() {
         name: edit.name.trim(),
         price: priceCents,
         stock_quantity: stock,
+        ...(hasSale ? { sale_price: saleCents } : { clear_sale_price: true }),
       })
       setProducts((prev) =>
         prev.map((p) =>
@@ -186,6 +211,7 @@ export function AdminProductsPage() {
                 ...p,
                 name: updated.name,
                 price: updated.price,
+                sale_price: updated.sale_price ?? null,
                 stock_quantity: updated.stock_quantity,
               }
             : p,
@@ -234,6 +260,20 @@ export function AdminProductsPage() {
     }
   }
 
+  async function uploadImage(productId: string, file: File) {
+    setImageBusy(true)
+    setImageError(null)
+    try {
+      await api.adminUploadProductImage(productId, file, imagePrimary)
+      setImagePrimary(false)
+      await loadDetail(productId)
+    } catch (err) {
+      setImageError(err instanceof ApiError ? err.message : 'Could not upload image.')
+    } finally {
+      setImageBusy(false)
+    }
+  }
+
   async function deleteImage(productId: string, imageId: string) {
     if (!window.confirm('Delete this image?')) return
     try {
@@ -265,12 +305,23 @@ export function AdminProductsPage() {
       setCreateError('Weight must be a non-negative integer (grams).')
       return
     }
+    const hasSale = newProduct.salePriceDollars.trim() !== ''
+    const saleCents = hasSale ? Math.round(parseFloat(newProduct.salePriceDollars) * 100) : null
+    if (hasSale && (!Number.isFinite(saleCents!) || saleCents! < 0)) {
+      setCreateError('Sale price must be a non-negative number.')
+      return
+    }
+    if (hasSale && saleCents! >= priceCents) {
+      setCreateError('Sale price must be below the regular price.')
+      return
+    }
     const body: Record<string, unknown> = {
       name: newProduct.name.trim(),
       price: priceCents,
       stock_quantity: stock,
       weight_g: weight,
     }
+    if (hasSale) body.sale_price = saleCents
     if (newProduct.description.trim()) body.description = newProduct.description.trim()
     if (newProduct.categoryId) body.category_id = newProduct.categoryId
     if (newProduct.brandId) body.brand_id = newProduct.brandId
@@ -292,10 +343,13 @@ export function AdminProductsPage() {
           id: created.id,
           name: created.name,
           price: created.price,
+          sale_price: created.sale_price ?? null,
           stock_quantity: created.stock_quantity,
           category_name: cat?.name ?? null,
           brand_name: brand?.name ?? null,
           primary_image: null,
+          avg_rating: 0,
+          review_count: 0,
         },
         ...prev,
       ])
@@ -317,9 +371,10 @@ export function AdminProductsPage() {
         caption="Create, edit, and remove the products that appear in the storefront."
       />
 
+      <BulkUploadPanel onUploaded={reloadProducts} />
+
       <section className="max-w-3xl mb-16">
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6">
-          <span className="tnum">01</span>
           <span aria-hidden className="text-rule-strong mx-2">
             /
           </span>
@@ -371,6 +426,16 @@ export function AdminProductsPage() {
               }
             />
           </div>
+          <Field
+            label="Sale price (USD, optional)"
+            type="number"
+            step="0.01"
+            min="0"
+            value={newProduct.salePriceDollars}
+            onChange={(e) =>
+              setNewProduct((s) => ({ ...s, salePriceDollars: e.target.value }))
+            }
+          />
           <div className="grid grid-cols-2 gap-6">
             <label className="block">
               <span className="block uc-tight text-[0.7rem] text-ink-faint mb-2">
@@ -450,7 +515,6 @@ export function AdminProductsPage() {
       <section>
         <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-6 flex items-baseline justify-between">
           <span>
-            <span className="tnum">02</span>
             <span aria-hidden className="text-rule-strong mx-2">
               /
             </span>
@@ -484,19 +548,37 @@ export function AdminProductsPage() {
                           setEdit((s) => (s ? { ...s, name: e.target.value } : s))
                         }
                       />
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        className="bg-raised border-0 border-b border-rule-strong focus:border-ink px-0 py-1 text-ink tnum text-right"
-                        style={{ borderRadius: 0 }}
-                        value={edit.priceDollars}
-                        onChange={(e) =>
-                          setEdit((s) =>
-                            s ? { ...s, priceDollars: e.target.value } : s,
-                          )
-                        }
-                      />
+                      <div className="flex flex-col gap-1">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          aria-label="Price"
+                          className="bg-raised border-0 border-b border-rule-strong focus:border-ink px-0 py-1 text-ink tnum text-right"
+                          style={{ borderRadius: 0 }}
+                          value={edit.priceDollars}
+                          onChange={(e) =>
+                            setEdit((s) =>
+                              s ? { ...s, priceDollars: e.target.value } : s,
+                            )
+                          }
+                        />
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Sale"
+                          aria-label="Sale price (optional)"
+                          className="bg-raised border-0 border-b border-rule focus:border-accent px-0 py-1 text-accent tnum text-right placeholder:text-ink-faint"
+                          style={{ borderRadius: 0 }}
+                          value={edit.salePriceDollars}
+                          onChange={(e) =>
+                            setEdit((s) =>
+                              s ? { ...s, salePriceDollars: e.target.value } : s,
+                            )
+                          }
+                        />
+                      </div>
                       <input
                         type="number"
                         min="0"
@@ -535,8 +617,17 @@ export function AdminProductsPage() {
                       >
                         {p.name}
                       </button>
-                      <span className="tnum text-right text-ink">
-                        {formatPrice(p.price)}
+                      <span className="tnum text-right text-ink flex flex-col items-end">
+                        {p.sale_price != null ? (
+                          <>
+                            <span className="text-accent">{formatPrice(p.sale_price)}</span>
+                            <span className="text-ink-faint line-through text-xs">
+                              {formatPrice(p.price)}
+                            </span>
+                          </>
+                        ) : (
+                          formatPrice(p.price)
+                        )}
                       </span>
                       <span
                         className={`tnum text-right ${
@@ -626,7 +717,39 @@ export function AdminProductsPage() {
 
                         <div className="border-t border-rule pt-4">
                           <div className="uc-tight text-[0.7rem] text-ink-faint mb-3">
-                            Add image
+                            Upload image
+                          </div>
+                          <p className="text-xs text-ink-faint mb-3">
+                            JPEG or PNG. Thumbnail, card, and full-size variants are
+                            generated automatically.
+                          </p>
+                          <div className="flex items-center gap-4 flex-wrap mb-6">
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png"
+                              disabled={imageBusy}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0]
+                                if (f) uploadImage(p.id, f)
+                                e.target.value = ''
+                              }}
+                              className="text-sm text-ink-soft file:mr-4 file:border file:border-rule file:bg-transparent file:px-3 file:py-1.5 file:text-ink file:cursor-pointer"
+                            />
+                            <label className="flex items-baseline gap-2 text-sm text-ink-soft">
+                              <input
+                                type="checkbox"
+                                checked={imagePrimary}
+                                onChange={(e) => setImagePrimary(e.target.checked)}
+                              />
+                              Mark primary
+                            </label>
+                            {imageBusy && (
+                              <span className="text-xs text-ink-faint">Uploading.</span>
+                            )}
+                          </div>
+
+                          <div className="uc-tight text-[0.7rem] text-ink-faint mb-3">
+                            Or add by URL
                           </div>
                           <div className="flex items-end gap-4 flex-wrap">
                             <div className="flex-1 min-w-[18rem]">

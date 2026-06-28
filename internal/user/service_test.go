@@ -63,6 +63,35 @@ func (m *mockRepo) UpdatePassword(_ context.Context, userID string, passwordHash
 	return ErrUserNotFound
 }
 
+func (m *mockRepo) ListAll(_ context.Context, limit, offset int) ([]User, int, error) {
+	out := []User{}
+	for _, u := range m.users {
+		out = append(out, u)
+	}
+	return out, len(out), nil
+}
+
+func (m *mockRepo) UpdateRole(_ context.Context, userID, role string) error {
+	for email, u := range m.users {
+		if u.Id.String() == userID {
+			u.Role = role
+			m.users[email] = u
+			return nil
+		}
+	}
+	return ErrUserNotFound
+}
+
+func (m *mockRepo) CountByRole(_ context.Context, role string) (int, error) {
+	n := 0
+	for _, u := range m.users {
+		if u.Role == role {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // --- Input validation tests ---
 
 func TestRegister_ValidInput(t *testing.T) {
@@ -70,7 +99,7 @@ func TestRegister_ValidInput(t *testing.T) {
 
 	resp, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "user@example.com",
-		Password: "securepassword",
+		Password: "Securepass1!",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "user@example.com", resp.Email)
@@ -82,7 +111,7 @@ func TestRegister_EmptyEmail(t *testing.T) {
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "",
-		Password: "securepassword",
+		Password: "Securepass1!",
 	})
 	assert.Error(t, err)
 }
@@ -101,7 +130,7 @@ func TestRegister_InvalidEmailFormat(t *testing.T) {
 			svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
 			_, err := svc.Register(context.Background(), RegisterRequest{
 				Email:    email,
-				Password: "securepassword",
+				Password: "Securepass1!",
 			})
 			assert.Error(t, err, "should reject invalid email: %s", email)
 		})
@@ -133,7 +162,7 @@ func TestRegister_ExactMinPassword(t *testing.T) {
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "user@example.com",
-		Password: "12345678",
+		Password: "Ab1!cdef",
 	})
 	assert.NoError(t, err, "exactly 8 characters should be accepted")
 }
@@ -143,12 +172,12 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 	svc := NewService(repo, bcrypt.MinCost, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
-		Email: "dup@example.com", Password: "securepassword",
+		Email: "dup@example.com", Password: "Securepass1!",
 	})
 	require.NoError(t, err)
 
 	_, err = svc.Register(context.Background(), RegisterRequest{
-		Email: "dup@example.com", Password: "securepassword",
+		Email: "dup@example.com", Password: "Securepass1!",
 	})
 	assert.ErrorIs(t, err, ErrEmailExists)
 }
@@ -158,7 +187,7 @@ func TestRegister_EmailNormalization_Case(t *testing.T) {
 
 	resp, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "USER@EXAMPLE.COM",
-		Password: "securepassword",
+		Password: "Securepass1!",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "user@example.com", resp.Email, "email should be lowercased")
@@ -169,7 +198,7 @@ func TestRegister_EmailWithSpaces_Rejected(t *testing.T) {
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "  user@example.com  ",
-		Password: "securepassword",
+		Password: "Securepass1!",
 	})
 	assert.Error(t, err, "email with leading/trailing spaces should be rejected by validator")
 }
