@@ -33,6 +33,35 @@ Open [http://localhost:8080](http://localhost:8080). To exercise Stripe end-to-e
 
 Plus a small mixed catalog (7 categories, 5 brands, 10 products, reviews).
 
+### Reviewer / admin testing guide
+
+Everything below is tested by **clicking through the UI** — no `curl` needed.
+
+**1. Enable admin 2FA (required once).** 2FA is enforced for all staff accounts, so the seeded admin must set it up before the dashboard unlocks. This *is* the "2FA enforced for admins" criterion — the block is expected, not a bug.
+
+1. Log in as `admin@shop.com` / `admin123`.
+2. Go to **Admin** (top-right nav) → you're blocked with a "Set up two-factor authentication" prompt → click it (or open `/account/2fa/setup`).
+3. Scan the QR with any authenticator app (Google Authenticator, Authy, 1Password) — or type the shown secret in manually.
+4. Enter the 6-digit code to confirm. The `/admin` dashboard is now unlocked. (Next logins ask for a current code.)
+
+**2. Walk the criteria.** Each admin section is a page in the left nav at `/admin`:
+
+| Test criterion | Where | What to do |
+|---|---|---|
+| 2FA enforced for all admins | `/admin` (first visit) | Confirm you were blocked until 2FA setup |
+| Product CRUD, all fields | Admin → **Products** | Create / edit / delete a product; set name, description, category, price, stock, images |
+| Bulk product upload (JSON + CSV) | Admin → Products → **Bulk upload** | Paste JSON or a CSV; submit |
+| Add / **edit** / **delete** categories | Admin → **Categories** | Create, then **Edit** and **Delete** a category (delete is blocked while products/subcategories reference it) |
+| **Manage delivery options** | Admin → **Delivery** | Create / edit / deactivate a shipping option; it appears at checkout |
+| Order status updates + refunds | Admin → **Orders** | Open an order; change shipping status; process a refund on a paid order |
+| View all users + assign roles | Admin → **Users** | Change a user's role (admin / support / sales / customer) |
+| Review moderation | Admin → **Reviews** | Approve / hide / delete a review |
+| Audit logging of admin actions | Admin → **Audit** | See the actions you just performed, logged |
+
+**3. Checkout / payments / refunds** use Stripe test mode. Card: **`4242 4242 4242 4242`**, any future expiry, any CVC, any ZIP. (Refunds need the Stripe webhook forwarder running — see Quick start.)
+
+> Role note: RBAC follows least privilege. The full list above requires the **admin** role. `support` sees Orders/Reviews; `sales` sees Products/Categories/Brands/Delivery.
+
 ### Make targets
 
 `make up` / `make down` / `make reset` (fresh DB) / `make test` / `make build` / `make migrate-up` / `make migrate-down`.
