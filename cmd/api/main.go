@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/stripe/stripe-go/v76"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
@@ -26,6 +27,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/audit"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/auth"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/brand"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cache"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/category"
@@ -80,6 +82,31 @@ func main() {
 	}
 
 	log.Println("connected to database")
+
+	// --- Optional Redis (shared rate-limit + cache across instances) ---
+	// Default is single-binary: in-memory cache and per-instance rate limiting.
+	// Setting REDIS_URL shares both across horizontally-scaled instances behind
+	// a load balancer — the seam that makes this app ready to scale out.
+	var rdb *redis.Client
+	if cfg.RedisURL != "" {
+		opt, perr := redis.ParseURL(cfg.RedisURL)
+		if perr != nil {
+			log.Fatalf("parse redis url: %v", perr)
+		}
+		rdb = redis.NewClient(opt)
+		if perr := rdb.Ping(ctx).Err(); perr != nil {
+			log.Fatalf("ping redis: %v", perr)
+		}
+		defer rdb.Close()
+		log.Println("connected to redis (shared rate-limit + cache)")
+	}
+
+	var appCache cache.Cache
+	if rdb != nil {
+		appCache = cache.NewRedis(rdb, "cache:")
+	} else {
+		appCache = cache.NewMemory(time.Minute)
+	}
 
 	// --- Dependency wiring ---
 
@@ -160,7 +187,7 @@ func main() {
 	brandHandler := brand.NewHandler(brandService)
 
 	categoryRepo := category.NewRepository(db)
-	categoryService := category.NewService(categoryRepo)
+	categoryService := category.NewServiceWithCache(categoryRepo, appCache, time.Minute)
 	categoryHandler := category.NewHandler(categoryService)
 
 	activityRepo := activity.NewRepository(db)
@@ -314,13 +341,24 @@ func main() {
 	}))
 
 	// --- Rate limiting (token bucket, per client IP) ---
-	// A loose global limiter is the safety net for every route; a strict
-	// limiter guards the brute-forceable auth endpoints. RealIP (above) has
-	// already resolved the client address into RemoteAddr. Limits are env-tunable
-	// (e.g. relaxed for load tests) via RATE_LIMIT_* / AUTH_RATE_LIMIT_*.
-	generalLimiter := mw.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
-	authLimiter := mw.NewRateLimiter(cfg.AuthRateLimitRPS, cfg.AuthRateLimitBurst)
-	r.Use(generalLimiter.Middleware)
+	// A loose limiter is the safety net for the API; a strict limiter guards the
+	// brute-forceable auth endpoints. RealIP (above) has already resolved the
+	// client address into RemoteAddr. Limits are env-tunable (e.g. relaxed for
+	// load tests) via RATE_LIMIT_* / AUTH_RATE_LIMIT_*.
+	//
+	// Scoped to /api/* so static SPA assets and /media product images aren't
+	// throttled (an image-heavy page would otherwise burn the bucket and 429),
+	// and the Stripe webhook is exempt so provider retries are never dropped.
+	var generalLimiter, authLimiter *mw.RateLimiter
+	if rdb != nil {
+		// Shared across instances: one global budget per client IP.
+		generalLimiter = mw.NewRedisRateLimiter(rdb, "rl:gen:", cfg.RateLimitRPS, cfg.RateLimitBurst)
+		authLimiter = mw.NewRedisRateLimiter(rdb, "rl:auth:", cfg.AuthRateLimitRPS, cfg.AuthRateLimitBurst)
+	} else {
+		generalLimiter = mw.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+		authLimiter = mw.NewRateLimiter(cfg.AuthRateLimitRPS, cfg.AuthRateLimitBurst)
+	}
+	r.Use(mw.ScopePath(generalLimiter.Middleware, "/api/", "/api/v1/webhooks/stripe"))
 
 	// --- Frontend (React SPA built into web/dist) ---
 	// Static assets and the SPA fallback share one handler below — see the

@@ -88,6 +88,11 @@ type Config struct {
 	DBMinConns        int
 	DBMaxConnLifetime time.Duration
 	DBMaxConnIdleTime time.Duration
+
+	// RedisURL is optional. Empty = single-binary mode (in-memory rate limiting
+	// and cache). Set it to share rate-limit state and the read cache across
+	// multiple app instances behind a load balancer.
+	RedisURL string
 }
 
 func Load() (*Config, error) {
@@ -142,6 +147,8 @@ func Load() (*Config, error) {
 		DBMinConns:        envInt("DB_MIN_CONNS", 5),
 		DBMaxConnLifetime: time.Duration(envInt("DB_MAX_CONN_LIFETIME_MIN", 60)) * time.Minute,
 		DBMaxConnIdleTime: time.Duration(envInt("DB_MAX_CONN_IDLE_MIN", 5)) * time.Minute,
+
+		RedisURL: os.Getenv("REDIS_URL"),
 	}
 
 	// CORS origins: explicit allow-list. Defaults to the local dev origins so

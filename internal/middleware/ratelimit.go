@@ -1,11 +1,13 @@
 // ratelimit.go — per-client token-bucket rate limiting.
 //
-// Each client IP gets its own bucket (golang.org/x/time/rate). Buckets are
-// kept in a map and swept periodically so idle clients don't leak memory.
-// Apply a strict limiter to auth/sensitive routes and a loose one globally.
+// The decision is delegated to a limiterStore: an in-memory store (the default,
+// one bucket per client IP) or a Redis-backed store shared across instances
+// (enabled via REDIS_URL) so horizontal scaling enforces a single global limit.
+// Apply a strict limiter to auth/sensitive routes and a loose one to the API.
 package middleware
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -16,65 +18,29 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 )
 
-type clientBucket struct {
-	limiter  *rate.Limiter
-	lastSeen time.Time
+// limiterStore decides whether the client identified by key may proceed. It
+// fails open: on a backing-store error it returns true so a cache outage never
+// takes the site down.
+type limiterStore interface {
+	allow(ctx context.Context, key string) bool
 }
 
-// RateLimiter holds one token bucket per client IP.
+// RateLimiter is HTTP middleware over a limiterStore.
 type RateLimiter struct {
-	mu      sync.Mutex
-	clients map[string]*clientBucket
-	rps     rate.Limit
-	burst   int
-	ttl     time.Duration
+	store limiterStore
 }
 
-// NewRateLimiter builds a limiter allowing `rps` requests/second per IP with a
-// burst of `burst`. Idle client buckets are evicted after they go untouched
-// for longer than the sweep TTL.
+// NewRateLimiter builds an in-memory limiter allowing `rps` requests/second per
+// IP with the given burst. Single-binary default.
 func NewRateLimiter(rps float64, burst int) *RateLimiter {
-	rl := &RateLimiter{
-		clients: make(map[string]*clientBucket),
-		rps:     rate.Limit(rps),
-		burst:   burst,
-		ttl:     10 * time.Minute,
-	}
-	go rl.sweep()
-	return rl
+	return &RateLimiter{store: newMemoryStore(rps, burst)}
 }
 
-func (rl *RateLimiter) bucket(ip string) *rate.Limiter {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-	if c, ok := rl.clients[ip]; ok {
-		c.lastSeen = time.Now()
-		return c.limiter
-	}
-	lim := rate.NewLimiter(rl.rps, rl.burst)
-	rl.clients[ip] = &clientBucket{limiter: lim, lastSeen: time.Now()}
-	return lim
-}
-
-func (rl *RateLimiter) sweep() {
-	t := time.NewTicker(rl.ttl)
-	defer t.Stop()
-	for range t.C {
-		rl.mu.Lock()
-		for ip, c := range rl.clients {
-			if time.Since(c.lastSeen) > rl.ttl {
-				delete(rl.clients, ip)
-			}
-		}
-		rl.mu.Unlock()
-	}
-}
-
-// Middleware rejects requests from a client that has exhausted its bucket with
-// 429 and a Retry-After header.
+// Middleware rejects a client that has exhausted its bucket with 429 and a
+// Retry-After header.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !rl.bucket(clientIP(r)).Allow() {
+		if !rl.store.allow(r.Context(), clientIP(r)) {
 			w.Header().Set("Retry-After", "1")
 			response.ErrorWithCode(w, http.StatusTooManyRequests, "rate_limited",
 				"too many requests — please slow down and try again in a moment")
@@ -82,6 +48,62 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// --- in-memory store -------------------------------------------------------
+
+type clientBucket struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+type memoryStore struct {
+	mu      sync.Mutex
+	clients map[string]*clientBucket
+	rps     rate.Limit
+	burst   int
+	ttl     time.Duration
+}
+
+func newMemoryStore(rps float64, burst int) *memoryStore {
+	s := &memoryStore{
+		clients: make(map[string]*clientBucket),
+		rps:     rate.Limit(rps),
+		burst:   burst,
+		ttl:     10 * time.Minute,
+	}
+	go s.sweep()
+	return s
+}
+
+func (s *memoryStore) allow(_ context.Context, key string) bool {
+	return s.bucket(key).Allow()
+}
+
+func (s *memoryStore) bucket(ip string) *rate.Limiter {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.clients[ip]; ok {
+		c.lastSeen = time.Now()
+		return c.limiter
+	}
+	lim := rate.NewLimiter(s.rps, s.burst)
+	s.clients[ip] = &clientBucket{limiter: lim, lastSeen: time.Now()}
+	return lim
+}
+
+func (s *memoryStore) sweep() {
+	t := time.NewTicker(s.ttl)
+	defer t.Stop()
+	for range t.C {
+		s.mu.Lock()
+		for ip, c := range s.clients {
+			if time.Since(c.lastSeen) > s.ttl {
+				delete(s.clients, ip)
+			}
+		}
+		s.mu.Unlock()
+	}
 }
 
 // clientIP extracts the host portion of RemoteAddr. RealIP middleware upstream

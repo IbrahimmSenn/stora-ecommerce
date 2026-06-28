@@ -4,9 +4,12 @@ package category
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cache"
 )
 
 type Service interface {
@@ -17,27 +20,63 @@ type Service interface {
 	Create(ctx context.Context, req CreateCategoryRequest) (*Category, error)
 }
 
+const (
+	cacheKeyList = "category:list"
+	cacheKeyTree = "category:tree"
+)
+
 type service struct {
 	repo     Repository
 	validate *validator.Validate
+	// cache is optional (nil = no caching). The category tree changes only on
+	// admin edits, so a short TTL is safe and keeps it off the hot read path.
+	cache    cache.Cache
+	cacheTTL time.Duration
 }
 
 func NewService(repo Repository) Service {
 	return &service{repo: repo, validate: validator.New()}
 }
 
+// NewServiceWithCache adds a read cache for the category list/tree. Pass the
+// app's shared cache (in-memory by default, Redis when configured).
+func NewServiceWithCache(repo Repository, c cache.Cache, ttl time.Duration) Service {
+	return &service{repo: repo, validate: validator.New(), cache: c, cacheTTL: ttl}
+}
+
 func (s *service) List(ctx context.Context) ([]Category, error) {
-	return s.repo.List(ctx)
+	if s.cache != nil {
+		if v, ok := cache.GetJSON[[]Category](ctx, s.cache, cacheKeyList); ok {
+			return v, nil
+		}
+	}
+	cats, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.cache != nil {
+		_ = cache.SetJSON(ctx, s.cache, cacheKeyList, cats, s.cacheTTL)
+	}
+	return cats, nil
 }
 
 // ListTree returns categories organized as a nested tree structure
 // for intuitive browsing (top-level categories with their children).
 func (s *service) ListTree(ctx context.Context) ([]CategoryTree, error) {
+	if s.cache != nil {
+		if v, ok := cache.GetJSON[[]CategoryTree](ctx, s.cache, cacheKeyTree); ok {
+			return v, nil
+		}
+	}
 	cats, err := s.repo.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return buildTree(cats), nil
+	tree := buildTree(cats)
+	if s.cache != nil {
+		_ = cache.SetJSON(ctx, s.cache, cacheKeyTree, tree, s.cacheTTL)
+	}
+	return tree, nil
 }
 
 func (s *service) GetByID(ctx context.Context, id string) (*Category, error) {
@@ -66,7 +105,18 @@ func (s *service) Create(ctx context.Context, req CreateCategoryRequest) (*Categ
 	if err != nil {
 		return nil, fmt.Errorf("create category: %w", err)
 	}
+	s.invalidate(ctx)
 	return c, nil
+}
+
+// invalidate drops the cached list/tree so a new category shows immediately
+// rather than waiting out the TTL.
+func (s *service) invalidate(ctx context.Context) {
+	if s.cache == nil {
+		return
+	}
+	_ = s.cache.Delete(ctx, cacheKeyList)
+	_ = s.cache.Delete(ctx, cacheKeyTree)
 }
 
 // buildTree converts a flat list of categories into a nested tree.

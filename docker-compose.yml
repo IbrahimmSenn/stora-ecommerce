@@ -64,6 +64,22 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # Optional shared cache + rate-limit store for running multiple API replicas.
+  # Off by default (single binary uses in-memory). Enable with:
+  #   docker compose --profile scale up
+  # and set REDIS_URL=redis://redis:6379/0 in the api environment.
+  redis:
+    image: redis:7-alpine
+    profiles: ["scale"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   # Optional DB browser — start with `docker compose --profile tools up -d adminer`.
   # Not part of the default lifecycle.
   adminer:
