@@ -11,6 +11,7 @@ import { StarRating } from '../reviews/StarRating'
 import { Seo } from '../components/Seo'
 import { PromoCarousel } from './PromoCarousel'
 import { MegaSale } from './MegaSale'
+import { ProductGridSkeleton } from '../components/Skeleton'
 
 function StockSignal({ qty }: { qty: number }) {
   if (qty === 0) return <span className="uc-tight text-[0.7rem] text-ink-faint italic">Out of stock</span>
@@ -334,7 +335,7 @@ export function ProductsPage() {
     return (
       <Page>
         {masthead}
-        <p className="text-sm text-ink-soft">Loading.</p>
+        <ProductGridSkeleton count={12} />
       </Page>
     )
   }

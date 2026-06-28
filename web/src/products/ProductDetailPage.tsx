@@ -14,6 +14,7 @@ import { useCart } from '../cart/useCart'
 import { useCartPanel } from '../cart/useCartPanel'
 import { Page } from '../components/Page'
 import { Seo } from '../components/Seo'
+import { Skeleton } from '../components/Skeleton'
 import { Minus, Plus } from '../components/icons'
 import { StarRating } from '../reviews/StarRating'
 import { ReviewsSection } from '../reviews/ReviewsSection'
@@ -95,7 +96,25 @@ export function ProductDetailPage() {
   if (loading) {
     return (
       <Page>
-        <p className="text-sm text-ink-soft">Loading.</p>
+        <div
+          aria-busy="true"
+          aria-label="Loading product"
+          className="grid grid-cols-1 md:grid-cols-12 gap-x-10 lg:gap-x-16 gap-y-12"
+        >
+          <div className="md:col-span-6 lg:col-span-5">
+            <Skeleton className="aspect-[4/5] w-full rounded-none" />
+          </div>
+          <div className="md:col-span-6 lg:col-span-7 space-y-4">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-8 w-3/4" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-px w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-11 w-40" />
+          </div>
+        </div>
       </Page>
     )
   }
