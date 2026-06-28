@@ -66,6 +66,14 @@ func (m *mockUserRepo) UpdatePassword(_ context.Context, userID string, password
 	return user.ErrUserNotFound
 }
 
+func (m *mockUserRepo) ListAll(_ context.Context, _, _ int) ([]user.User, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockUserRepo) UpdateRole(_ context.Context, _, _ string) error { return nil }
+
+func (m *mockUserRepo) CountByRole(_ context.Context, _ string) (int, error) { return 0, nil }
+
 // --- Mock auth repository ---
 
 type mockAuthRepo struct {

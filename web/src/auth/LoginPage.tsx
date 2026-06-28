@@ -9,6 +9,7 @@ import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { Button } from '../components/Button'
 import { Field } from '../components/Field'
+import { Seo } from '../components/Seo'
 
 export function LoginPage() {
   const { login } = useAuth()
@@ -72,8 +73,8 @@ export function LoginPage() {
 
   return (
     <Page width="max-w-md">
+      <Seo title="Sign in" description="Sign in to your Stora account to track orders, manage saved addresses, and check out faster." />
       <Masthead
-        number="01"
         eyebrow="Account"
         title="Log in."
         caption={

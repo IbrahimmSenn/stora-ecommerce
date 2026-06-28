@@ -18,6 +18,10 @@ type LoginResponse struct {
 	RefreshToken string    `json:"refresh_token"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	TokenType    string    `json:"token_type"`
+	// TwoFactorSetupRequired is true when a staff account signed in without 2FA
+	// enabled. The frontend uses it to route the user straight to 2FA setup;
+	// admin endpoints stay blocked server-side until 2FA is configured.
+	TwoFactorSetupRequired bool `json:"two_factor_setup_required,omitempty"`
 }
 
 type RefreshRequest struct {

@@ -19,6 +19,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/passwordpolicy"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
 
@@ -98,7 +99,8 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 
 	// Check if 2FA is enabled for this user.
 	tfa, err := s.authRepo.Get2FAByUserID(ctx, u.Id.String())
-	if err == nil && tfa.IsEnabled {
+	twoFactorEnabled := err == nil && tfa.IsEnabled
+	if twoFactorEnabled {
 		// 2FA is enabled — require TOTP code.
 		if req.TOTPCode == "" {
 			return nil, Err2FARequired
@@ -112,6 +114,10 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 			}
 		}
 	}
+
+	// Staff accounts must run with 2FA. Signal the frontend to send them to
+	// setup; admin endpoints remain blocked server-side until it's enabled.
+	staffNeeds2FA := isStaffRole(u.Role) && !twoFactorEnabled
 
 	tokenPair, err := GenerateTokenPair(u.Id.String(), u.Email, u.Role, s.jwtSecret)
 	if err != nil {
@@ -130,11 +136,18 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 	}
 
 	return &LoginResponse{
-		AccessToken:  tokenPair.AccessToken,
-		RefreshToken: tokenPair.RefreshToken,
-		ExpiresAt:    time.Now().Add(15 * time.Minute),
-		TokenType:    "Bearer",
+		AccessToken:            tokenPair.AccessToken,
+		RefreshToken:           tokenPair.RefreshToken,
+		ExpiresAt:              time.Now().Add(15 * time.Minute),
+		TokenType:              "Bearer",
+		TwoFactorSetupRequired: staffNeeds2FA,
 	}, nil
+}
+
+// isStaffRole reports whether a role is one of the privileged staff roles that
+// must have 2FA enabled.
+func isStaffRole(role string) bool {
+	return role == "admin" || role == "support" || role == "sales"
 }
 
 // --- Refresh tokens ---
@@ -264,6 +277,9 @@ func (s *authService) ForgotPassword(ctx context.Context, req ForgotPasswordRequ
 
 func (s *authService) ResetPassword(ctx context.Context, req ResetPasswordRequest) error {
 	if err := s.validate.Struct(req); err != nil {
+		return err
+	}
+	if err := passwordpolicy.Validate(req.NewPassword); err != nil {
 		return err
 	}
 

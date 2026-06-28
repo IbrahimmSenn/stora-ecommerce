@@ -55,7 +55,6 @@ export function TwoFactorSetupPage() {
     return (
       <Page width="max-w-md">
         <Masthead
-          number="03"
           eyebrow="Two-factor"
           title="Activated."
           caption="From now on, log-in requires a TOTP code."
@@ -67,7 +66,7 @@ export function TwoFactorSetupPage() {
   if (!setup) {
     return (
       <Page width="max-w-md">
-        <Masthead number="01" eyebrow="Two-factor" title="Setting up." />
+        <Masthead eyebrow="Two-factor" title="Setting up." />
         {error ? (
           <p className="text-sm text-accent">{error}</p>
         ) : (
@@ -80,7 +79,6 @@ export function TwoFactorSetupPage() {
   return (
     <Page width="max-w-2xl">
       <Masthead
-        number="01"
         eyebrow="Two-factor"
         title="Scan the code."
         caption="Open your authenticator app, scan the QR, then enter the 6-digit code below to activate."

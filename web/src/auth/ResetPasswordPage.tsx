@@ -5,6 +5,8 @@ import { Masthead } from '../components/Masthead'
 import { Button } from '../components/Button'
 import { Field } from '../components/Field'
 import { api, ApiError } from '../lib/api'
+import { PasswordChecklist } from './PasswordChecklist'
+import { passwordIsStrong } from './passwordCriteria'
 
 export function ResetPasswordPage() {
   const [params] = useSearchParams()
@@ -19,8 +21,10 @@ export function ResetPasswordPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+    if (!passwordIsStrong(password)) {
+      setError(
+        'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a symbol.',
+      )
       return
     }
     if (password !== confirm) {
@@ -45,13 +49,12 @@ export function ResetPasswordPage() {
   return (
     <Page width="max-w-md">
       <Masthead
-        number="02"
         eyebrow="Recover"
-        title="Set a new password."
+        title="Set a new password"
         caption={
           token
-            ? 'The token from the email is read from the URL. Choose a new password below.'
-            : 'No token detected in the URL. Open the reset link from your email.'
+            ? 'Choose a new password for your account below.'
+            : 'No reset token found in the link. Open the reset link from your email.'
         }
       />
 
@@ -62,10 +65,10 @@ export function ResetPasswordPage() {
           required
           autoComplete="new-password"
           minLength={8}
-          hint="At least 8 characters."
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        {password.length > 0 && <PasswordChecklist password={password} />}
         <Field
           label="Confirm new password"
           type="password"
@@ -79,10 +82,10 @@ export function ResetPasswordPage() {
 
         <div className="flex items-center gap-6">
           <Button type="submit" disabled={busy || !token}>
-            {busy ? 'Saving.' : 'Save new password'}
+            {busy ? 'Saving…' : 'Save new password'}
           </Button>
           <Link to="/login" className="text-sm text-ink-soft hover:text-ink">
-            Back to log in.
+            Back to log in
           </Link>
         </div>
       </form>

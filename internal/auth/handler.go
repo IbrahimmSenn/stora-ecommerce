@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/validator/v10"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/passwordpolicy"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 )
 
@@ -200,6 +201,8 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.As(err, &ve):
 			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+		case errors.Is(err, passwordpolicy.ErrWeak):
+			response.Error(w, http.StatusBadRequest, passwordpolicy.ErrWeak.Error())
 		case errors.Is(err, ErrResetTokenNotFound):
 			response.Error(w, http.StatusBadRequest, "invalid or expired reset token")
 		case errors.Is(err, ErrResetTokenUsed):

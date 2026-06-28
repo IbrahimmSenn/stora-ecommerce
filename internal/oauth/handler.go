@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 
 	"github.com/go-chi/chi/v5"
 
@@ -48,10 +47,24 @@ func (h *Handler) Redirect(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	url := provider.AuthURL(state)
 
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	// Persist the state in a short-lived cookie so the callback can verify the
+	// provider echoed back the same value — defeats OAuth login CSRF. SameSite
+	// Lax lets the cookie ride the top-level GET redirect back from the provider.
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    state,
+		Path:     "/api/v1/auth/oauth",
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600,
+	})
+
+	http.Redirect(w, r, provider.AuthURL(state), http.StatusTemporaryRedirect)
 }
+
+const oauthStateCookie = "oauth_state"
 
 // Callback handles the OAuth provider's redirect back to our app.
 // GET /api/v1/auth/oauth/{provider}/callback?code=...&state=...
@@ -63,6 +76,24 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "unsupported oauth provider")
 		return
 	}
+
+	// Verify the state parameter against the cookie set in Redirect (CSRF).
+	stateParam := r.URL.Query().Get("state")
+	stateCookie, cookieErr := r.Cookie(oauthStateCookie)
+	if cookieErr != nil || stateParam == "" || stateCookie.Value != stateParam {
+		response.Error(w, http.StatusBadRequest, "invalid or missing oauth state")
+		return
+	}
+	// Consume the state cookie so it can't be replayed.
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    "",
+		Path:     "/api/v1/auth/oauth",
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -97,13 +128,10 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   7 * 24 * 60 * 60,
 	})
 
-	// Redirect back to the frontend with tokens as query parameters.
-	redirectURL := fmt.Sprintf("%s/?access_token=%s&refresh_token=%s",
-		h.baseURL,
-		url.QueryEscape(loginResp.AccessToken),
-		url.QueryEscape(loginResp.RefreshToken),
-	)
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+	// Redirect to the app. No tokens in the URL — the HttpOnly refresh cookie
+	// above plus the SPA's mount-time refresh establish the session, so query/
+	// fragment token leakage (browser history, referrer, server logs) is avoided.
+	http.Redirect(w, r, h.baseURL+"/", http.StatusTemporaryRedirect)
 }
 
 func generateState() (string, error) {

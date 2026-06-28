@@ -4,8 +4,11 @@ import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { Button } from '../components/Button'
 import { Field } from '../components/Field'
+import { Seo } from '../components/Seo'
 import { api, ApiError } from '../lib/api'
 import { getCaptchaToken } from '../lib/captcha'
+import { PasswordChecklist } from './PasswordChecklist'
+import { passwordIsStrong } from './passwordCriteria'
 
 export function RegisterPage() {
   const navigate = useNavigate()
@@ -18,8 +21,10 @@ export function RegisterPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+    if (!passwordIsStrong(password)) {
+      setError(
+        'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a symbol.',
+      )
       return
     }
     if (password !== confirm) {
@@ -40,7 +45,8 @@ export function RegisterPage() {
 
   return (
     <Page width="max-w-md">
-      <Masthead number="01" eyebrow="Account" title="Register." />
+      <Seo title="Create an account" description="Create a Stora account to save addresses, track orders, and check out faster — secure sign-up with optional two-factor." />
+      <Masthead eyebrow="Account" title="Create account" />
 
       <form onSubmit={handleSubmit} className="space-y-8">
         <Field
@@ -57,10 +63,10 @@ export function RegisterPage() {
           required
           autoComplete="new-password"
           minLength={8}
-          hint="At least 8 characters."
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        {password.length > 0 && <PasswordChecklist password={password} />}
         <Field
           label="Confirm password"
           type="password"
@@ -74,7 +80,7 @@ export function RegisterPage() {
 
         <div className="flex items-center gap-6 pt-2">
           <Button type="submit" disabled={busy}>
-            {busy ? 'Registering.' : 'Register'}
+            {busy ? 'Creating account…' : 'Create account'}
           </Button>
           <Link to="/login" className="text-sm text-ink-soft hover:text-ink">
             Already have an account?

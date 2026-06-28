@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS users_email_hmac_key;
+ALTER TABLE users ADD COLUMN email VARCHAR(255);
+ALTER TABLE users DROP COLUMN IF EXISTS email_encrypted;
+ALTER TABLE users DROP COLUMN IF EXISTS email_hmac;

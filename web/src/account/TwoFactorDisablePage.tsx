@@ -33,7 +33,6 @@ export function TwoFactorDisablePage() {
   return (
     <Page width="max-w-md">
       <Masthead
-        number="02"
         eyebrow="Two-factor"
         title="Disable two-factor."
         caption="Enter a current TOTP code or one of your recovery codes to confirm."

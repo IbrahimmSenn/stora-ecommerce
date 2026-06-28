@@ -30,7 +30,6 @@ export function ForgotPasswordPage() {
     return (
       <Page width="max-w-md">
         <Masthead
-          number="01"
           eyebrow="Recover"
           title="Check your inbox."
           caption={
@@ -50,7 +49,6 @@ export function ForgotPasswordPage() {
   return (
     <Page width="max-w-md">
       <Masthead
-        number="01"
         eyebrow="Recover"
         title="Reset password."
         caption="Enter the email tied to your account. If we find it, we'll send a one-time link."
