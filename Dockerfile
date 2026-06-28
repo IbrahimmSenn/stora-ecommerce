@@ -32,13 +32,22 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /api ./cmd/api
 # --- Run stage ---
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates wget
 
 WORKDIR /app
 
 COPY --from=builder /api /app/api
 COPY migrations /app/migrations
 COPY --from=web-builder /web/dist /app/web/dist
+
+# Run as an unprivileged user. The runtime-writable dirs (uploads, self-signed
+# certs) are created here and owned by appuser so the mounted named volumes
+# inherit that ownership on first creation.
+RUN addgroup -S app && adduser -S -G app appuser \
+	&& mkdir -p /app/uploads /app/certs \
+	&& chown -R appuser:app /app
+
+USER appuser
 
 EXPOSE 8080
 

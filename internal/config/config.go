@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -52,6 +54,40 @@ type Config struct {
 	// CookieSecure marks auth/session cookies with the Secure attribute so
 	// browsers only send them over HTTPS. Enabled when APP_ENV=production.
 	CookieSecure bool
+
+	// AppEnv is the raw APP_ENV value ("production" enables stricter checks).
+	AppEnv string
+
+	// UploadDir is where uploaded product images + generated variants are
+	// written; served under /media. Defaults to ./uploads.
+	UploadDir string
+
+	// TLS — when enabled, an HTTPS listener runs alongside HTTP. A self-signed
+	// cert is generated at the cert/key paths if they don't exist.
+	TLSEnabled  bool
+	TLSPort     string
+	TLSCertFile string
+	TLSKeyFile  string
+
+	// CORSOrigins is the allow-list of browser origins. The SPA is served
+	// same-origin (or proxied in dev), so this only governs cross-origin
+	// callers — never wildcard with credentials.
+	CORSOrigins []string
+
+	// Rate limiting (per client IP). General is the global safety net; Auth
+	// is the strict bucket guarding brute-forceable auth endpoints. All
+	// tunable via env so load tests can relax them.
+	RateLimitRPS       float64
+	RateLimitBurst     int
+	AuthRateLimitRPS   float64
+	AuthRateLimitBurst int
+
+	// Database connection pool sizing. pgxpool defaults to 4×GOMAXPROCS max
+	// conns with no floor, which starves first under load — size it explicitly.
+	DBMaxConns        int
+	DBMinConns        int
+	DBMaxConnLifetime time.Duration
+	DBMaxConnIdleTime time.Duration
 }
 
 func Load() (*Config, error) {
@@ -88,7 +124,38 @@ func Load() (*Config, error) {
 		NominatimBaseURL:   os.Getenv("NOMINATIM_BASE_URL"),
 		NominatimUserAgent: os.Getenv("NOMINATIM_USER_AGENT"),
 
+		AppEnv:       os.Getenv("APP_ENV"),
+		UploadDir:    os.Getenv("UPLOAD_DIR"),
 		CookieSecure: os.Getenv("APP_ENV") == "production",
+
+		TLSEnabled:  os.Getenv("TLS_ENABLED") == "true",
+		TLSPort:     os.Getenv("TLS_PORT"),
+		TLSCertFile: os.Getenv("TLS_CERT_FILE"),
+		TLSKeyFile:  os.Getenv("TLS_KEY_FILE"),
+
+		RateLimitRPS:       envFloat("RATE_LIMIT_RPS", 30),
+		RateLimitBurst:     envInt("RATE_LIMIT_BURST", 60),
+		AuthRateLimitRPS:   envFloat("AUTH_RATE_LIMIT_RPS", 0.2),
+		AuthRateLimitBurst: envInt("AUTH_RATE_LIMIT_BURST", 8),
+
+		DBMaxConns:        envInt("DB_MAX_CONNS", 25),
+		DBMinConns:        envInt("DB_MIN_CONNS", 5),
+		DBMaxConnLifetime: time.Duration(envInt("DB_MAX_CONN_LIFETIME_MIN", 60)) * time.Minute,
+		DBMaxConnIdleTime: time.Duration(envInt("DB_MAX_CONN_IDLE_MIN", 5)) * time.Minute,
+	}
+
+	// CORS origins: explicit allow-list. Defaults to the local dev origins so
+	// nothing breaks out of the box (the SPA itself is same-origin and never
+	// needs CORS); production must set CORS_ORIGINS to the real domain.
+	corsRaw := os.Getenv("CORS_ORIGINS")
+	if corsRaw == "" {
+		cfg.CORSOrigins = []string{"http://localhost:5173", "http://localhost:8080"}
+	} else {
+		for _, o := range strings.Split(corsRaw, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				cfg.CORSOrigins = append(cfg.CORSOrigins, o)
+			}
+		}
 	}
 
 	if cfg.NominatimBaseURL == "" {
@@ -132,6 +199,20 @@ func Load() (*Config, error) {
 		cfg.Port = "8080"
 	}
 
+	if cfg.UploadDir == "" {
+		cfg.UploadDir = "./uploads"
+	}
+
+	if cfg.TLSPort == "" {
+		cfg.TLSPort = "8443"
+	}
+	if cfg.TLSCertFile == "" {
+		cfg.TLSCertFile = "./certs/server.crt"
+	}
+	if cfg.TLSKeyFile == "" {
+		cfg.TLSKeyFile = "./certs/server.key"
+	}
+
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "http://localhost:" + cfg.Port
 	}
@@ -155,5 +236,55 @@ func Load() (*Config, error) {
 		cfg.BcryptCost = cost
 	}
 
+	if err := cfg.validateForProduction(corsRaw); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateForProduction fails fast on insecure settings when APP_ENV=production.
+// In any other environment these are warnings at most, so local dev is never
+// blocked. corsExplicit is the raw CORS_ORIGINS value (empty = using defaults).
+func (c *Config) validateForProduction(corsExplicit string) error {
+	if c.AppEnv != "production" {
+		return nil
+	}
+	if c.SkipCaptcha {
+		return fmt.Errorf("SKIP_CAPTCHA must not be true in production")
+	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 chars in production (got %d)", len(c.JWTSecret))
+	}
+	if !strings.HasPrefix(c.BaseURL, "https://") {
+		return fmt.Errorf("BASE_URL must be https:// in production")
+	}
+	if corsExplicit == "" {
+		return fmt.Errorf("CORS_ORIGINS must be set to your frontend origin(s) in production")
+	}
+	if strings.Contains(c.RabbitMQURL, "guest:guest@") {
+		return fmt.Errorf("RABBITMQ_URL must not use the default guest:guest credentials in production")
+	}
+	if strings.Contains(c.DatabaseURL, ":secret@") || strings.Contains(c.DatabaseURL, "sslmode=disable") {
+		return fmt.Errorf("DATABASE_URL must use non-default credentials and sslmode=require in production")
+	}
+	return nil
+}
+
+func envFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
 }

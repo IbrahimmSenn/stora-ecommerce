@@ -39,12 +39,12 @@ services:
       migrate:
         condition: service_completed_successfully
     volumes:
-      - ./migrations/seed.sql:/seed.sql:ro
+      - ./migrations:/migrations:ro
     entrypoint:
       [
         "sh",
         "-c",
-        "PGPASSWORD=${POSTGRES_PASSWORD:-secret} psql -h db -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-mystore} -f /seed.sql",
+        "PGPASSWORD=${POSTGRES_PASSWORD:-secret} psql -h db -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-mystore} -f /migrations/seed.sql",
       ]
 
   rabbitmq:
@@ -80,6 +80,7 @@ services:
 
   api:
     build: .
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -96,8 +97,24 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       SMTP_HOST: mailhog
       SMTP_PORT: "1025"
+      UPLOAD_DIR: /app/uploads
+      TLS_ENABLED: "true"
+      TLS_PORT: "8443"
+      TLS_CERT_FILE: /app/certs/server.crt
+      TLS_KEY_FILE: /app/certs/server.key
+    volumes:
+      - uploads:/app/uploads
+      - certs:/app/certs
     ports:
       - "8080:8080"
+      - "8443:8443"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   pgdata:
+  uploads:
+  certs:

@@ -28,6 +28,11 @@ build:
 test:
 	go test ./... -count=1
 
+# Generate thumbnail/card/full variants for seeded product images that only
+# have a legacy url. Run after the catalogue is seeded.
+image-variants:
+	go run ./cmd/imagevariants
+
 # --- Migrations (local) ---
 
 migrate-up:

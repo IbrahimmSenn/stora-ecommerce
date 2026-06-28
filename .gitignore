@@ -1,5 +1,7 @@
 .env
 /api
+/uploads
+/certs
 CLAUDE.md
 web/node_modules
 web/dist
