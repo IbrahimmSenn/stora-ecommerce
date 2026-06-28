@@ -35,7 +35,8 @@ func newTestServiceWithDeps(t *testing.T, repo *stubRepo, carts cart.Service, re
 	if geocoder == nil {
 		geocoder = PassthroughGeocoder{}
 	}
-	return NewService(repo, carts, enc, geocoder, refunder, nil)
+	// nil rater → falls back to the built-in flat shipping rates.
+	return NewService(repo, carts, enc, geocoder, refunder, nil, nil)
 }
 
 type stubRefunder struct {

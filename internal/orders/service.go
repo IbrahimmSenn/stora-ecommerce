@@ -16,11 +16,19 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
 )
 
-// shippingRates is the source of truth for shipping cost. Two flat options
-// for now; extend with zones later if needed.
+// shippingRates is the built-in fallback used when no ShippingRater is wired
+// (e.g. in unit tests). In production the delivery service is the source of
+// truth and these two seeded codes mirror its seed rows.
 var shippingRates = map[string]int64{
 	ShippingStandard: 500,
 	ShippingExpress:  1500,
+}
+
+// ShippingRater resolves a shipping method code to its cost in cents. ok is
+// false for an unknown or inactive method. Implemented by the delivery service
+// and injected from main.go (consumer-side interface, like Refunder).
+type ShippingRater interface {
+	Rate(ctx context.Context, code string) (cents int64, ok bool, err error)
 }
 
 type Service interface {
@@ -87,9 +95,10 @@ type service struct {
 	geocoder   Geocoder
 	refunder   Refunder
 	reconciler Reconciler
+	rater      ShippingRater
 }
 
-func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, geocoder Geocoder, refunder Refunder, reconciler Reconciler) Service {
+func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, geocoder Geocoder, refunder Refunder, reconciler Reconciler, rater ShippingRater) Service {
 	v := validator.New()
 	// Stricter than `alpha,len=2`: rejects "ZZ" etc. by checking against the
 	// real ISO 3166-1 alpha-2 list. Applied via the `iso3166_1_alpha2` tag.
@@ -107,7 +116,29 @@ func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor
 		geocoder:   geocoder,
 		refunder:   refunder,
 		reconciler: reconciler,
+		rater:      rater,
 	}
+}
+
+// resolveShipping returns the cost for a shipping method code. It uses the
+// injected ShippingRater (delivery service) when present, falling back to the
+// built-in flat rates otherwise. Unknown/inactive methods yield ErrInvalidShipping.
+func (s *service) resolveShipping(ctx context.Context, code string) (int64, error) {
+	if s.rater != nil {
+		cents, ok, err := s.rater.Rate(ctx, code)
+		if err != nil {
+			return 0, fmt.Errorf("resolve shipping rate: %w", err)
+		}
+		if !ok {
+			return 0, ErrInvalidShipping
+		}
+		return cents, nil
+	}
+	cents, ok := shippingRates[code]
+	if !ok {
+		return 0, ErrInvalidShipping
+	}
+	return cents, nil
 }
 
 func (s *service) Checkout(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, req CheckoutRequest) (*OrderResponse, error) {
@@ -132,9 +163,9 @@ func (s *service) Checkout(ctx context.Context, userID *uuid.UUID, guestID *uuid
 		log.Printf("orders: address override used: %v", geocodeErr)
 	}
 
-	shippingCents, ok := shippingRates[req.ShippingMethod]
-	if !ok {
-		return nil, ErrInvalidShipping
+	shippingCents, err := s.resolveShipping(ctx, req.ShippingMethod)
+	if err != nil {
+		return nil, err
 	}
 
 	cartView, err := s.carts.GetCart(ctx, userID, guestID)

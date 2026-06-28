@@ -21,6 +21,7 @@ import { AdminLayout } from './admin/AdminLayout'
 import { AdminProductsPage } from './admin/AdminProductsPage'
 import { AdminCategoriesPage } from './admin/AdminCategoriesPage'
 import { AdminBrandsPage } from './admin/AdminBrandsPage'
+import { AdminDeliveryPage } from './admin/AdminDeliveryPage'
 import { AdminOrdersPage } from './admin/AdminOrdersPage'
 import { AdminUsersPage } from './admin/AdminUsersPage'
 import { AdminReviewsPage } from './admin/AdminReviewsPage'
@@ -73,6 +74,7 @@ function App() {
           <Route path="products" element={<AdminProductsPage />} />
           <Route path="categories" element={<AdminCategoriesPage />} />
           <Route path="brands" element={<AdminBrandsPage />} />
+          <Route path="delivery" element={<AdminDeliveryPage />} />
           <Route path="orders" element={<AdminOrdersPage />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="reviews" element={<AdminReviewsPage />} />

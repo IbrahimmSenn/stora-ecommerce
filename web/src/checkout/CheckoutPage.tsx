@@ -22,7 +22,7 @@ import type { StripeElementsOptions } from '@stripe/stripe-js'
 import { useCart } from '../cart/useCart'
 import { useAuth } from '../auth/useAuth'
 import { api, ApiError, formatPrice } from '../lib/api'
-import type { CheckoutRequest, ShippingMethod } from '../lib/api'
+import type { CheckoutRequest, DeliveryOption } from '../lib/api'
 import { Page } from '../components/Page'
 import { Seo } from '../components/Seo'
 import { Masthead } from '../components/Masthead'
@@ -33,11 +33,6 @@ import { validateCheckout } from './validate'
 import type { CheckoutFormState } from './validate'
 
 type FormState = CheckoutFormState
-
-const SHIPPING_OPTIONS: { id: ShippingMethod; label: string; cents: number; eta: string }[] = [
-  { id: 'standard', label: 'Standard', cents: 500, eta: '5–7 business days' },
-  { id: 'express', label: 'Express', cents: 1500, eta: '1–2 business days' },
-]
 
 const initial: FormState = {
   email: '',
@@ -57,6 +52,7 @@ export function CheckoutPage() {
   const { theme } = useTheme()
   const [publishableKey, setPublishableKey] = useState<string | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
+  const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -78,9 +74,34 @@ export function CheckoutPage() {
     }
   }, [])
 
-  const shippingCents =
-    SHIPPING_OPTIONS.find((o) => o.id === 'standard')!.cents
-  const seedAmount = (cart?.total ?? 0) + shippingCents
+  // Shipping methods are admin-managed; fetch the active set for the selector.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listDeliveryOptions()
+      .then((opts) => {
+        if (cancelled) return
+        setDeliveryOptions(opts)
+        // Default the selection to the first option when the seeded 'standard'
+        // isn't present (e.g. an admin renamed/removed it).
+        if (opts.length > 0 && !opts.some((o) => o.code === 'standard')) {
+          setForm((f) => ({ ...f, shipping_method: opts[0].code }))
+        }
+      })
+      .catch(() => {
+        // Non-fatal: the order summary still works; the selector just shows
+        // nothing until reload. Server re-validates the method at checkout.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const seedShippingCents =
+    deliveryOptions.find((o) => o.code === 'standard')?.price_cents ??
+    deliveryOptions[0]?.price_cents ??
+    0
+  const seedAmount = (cart?.total ?? 0) + seedShippingCents
 
   const options = useMemo<StripeElementsOptions | null>(() => {
     if (!publishableKey || seedAmount <= 0) return null
@@ -225,12 +246,9 @@ function CheckoutInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthed])
 
-  const shipping = useMemo(
-    () => SHIPPING_OPTIONS.find((o) => o.id === form.shipping_method)!,
-    [form.shipping_method],
-  )
+  const shipping = deliveryOptions.find((o) => o.code === form.shipping_method) ?? null
   const subtotal = cart?.total ?? 0
-  const total = subtotal + shipping.cents
+  const total = subtotal + (shipping?.price_cents ?? 0)
 
   // Keep Stripe Elements' internal amount in sync when the shipping method
   // changes — required for the deferred-intent confirm step to validate.
@@ -529,8 +547,11 @@ function CheckoutInner() {
 
           <Section title="Shipping method">
             <div className="space-y-2">
-              {SHIPPING_OPTIONS.map((opt) => {
-                const active = form.shipping_method === opt.id
+              {deliveryOptions.length === 0 && (
+                <p className="text-sm text-ink-faint">Loading shipping options…</p>
+              )}
+              {deliveryOptions.map((opt) => {
+                const active = form.shipping_method === opt.code
                 return (
                   <label
                     key={opt.id}
@@ -545,17 +566,17 @@ function CheckoutInner() {
                       <input
                         type="radio"
                         name="shipping_method"
-                        value={opt.id}
+                        value={opt.code}
                         checked={active}
-                        onChange={() => update('shipping_method', opt.id)}
+                        onChange={() => update('shipping_method', opt.code)}
                         className="accent-current text-ink"
                       />
                       <div>
                         <p className="text-ink">{opt.label}</p>
-                        <p className="text-xs text-ink-faint mt-0.5">{opt.eta}</p>
+                        <p className="text-xs text-ink-faint mt-0.5">{opt.eta_label}</p>
                       </div>
                     </div>
-                    <span className="tnum text-ink">{formatPrice(opt.cents)}</span>
+                    <span className="tnum text-ink">{formatPrice(opt.price_cents)}</span>
                   </label>
                 )
               })}
@@ -655,9 +676,9 @@ function CheckoutInner() {
             </div>
             <div className="flex justify-between">
               <dt className="text-ink-soft">
-                Shipping ({shipping.label.toLowerCase()})
+                Shipping{shipping ? ` (${shipping.label.toLowerCase()})` : ''}
               </dt>
-              <dd className="tnum text-ink">{formatPrice(shipping.cents)}</dd>
+              <dd className="tnum text-ink">{formatPrice(shipping?.price_cents ?? 0)}</dd>
             </div>
             <div className="flex justify-between pt-4 mt-2 border-t border-rule items-baseline">
               <dt className="uc-tight text-[0.7rem] text-ink-faint">Total</dt>

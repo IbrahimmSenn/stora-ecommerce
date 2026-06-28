@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { to: '/admin/products', label: 'Products', roles: ['admin', 'sales'] },
   { to: '/admin/categories', label: 'Categories', roles: ['admin', 'sales'] },
   { to: '/admin/brands', label: 'Brands', roles: ['admin', 'sales'] },
+  { to: '/admin/delivery', label: 'Delivery', roles: ['admin', 'sales'] },
   { to: '/admin/orders', label: 'Orders', roles: ['admin', 'support'] },
   { to: '/admin/reviews', label: 'Reviews', roles: ['admin', 'support'] },
   { to: '/admin/users', label: 'Users', roles: ['admin'] },

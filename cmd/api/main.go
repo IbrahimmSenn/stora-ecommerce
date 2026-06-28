@@ -35,6 +35,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/contact"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/delivery"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/imageproc"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/messaging"
@@ -190,6 +191,10 @@ func main() {
 	categoryService := category.NewServiceWithCache(categoryRepo, appCache, time.Minute)
 	categoryHandler := category.NewHandler(categoryService)
 
+	deliveryRepo := delivery.NewRepository(db)
+	deliveryService := delivery.NewService(deliveryRepo)
+	deliveryHandler := delivery.NewHandler(deliveryService)
+
 	activityRepo := activity.NewRepository(db)
 	activityService := activity.NewService(activityRepo)
 
@@ -232,7 +237,7 @@ func main() {
 	log.Printf("address verification: nominatim at %s", cfg.NominatimBaseURL)
 
 	ordersRepo := orders.NewRepository(db)
-	ordersService := orders.NewService(ordersRepo, cartService, encryptor, geocoder, refunder, reconciler)
+	ordersService := orders.NewService(ordersRepo, cartService, encryptor, geocoder, refunder, reconciler, deliveryService)
 	ordersHandler := orders.NewHandler(ordersService)
 
 	paymentsRepo := payments.NewRepository(db, encryptor)
@@ -428,6 +433,7 @@ func main() {
 	r.Get("/api/v1/categories/{slug}", categoryHandler.GetBySlug)
 	r.Get("/api/v1/brands", brandHandler.List)
 	r.Get("/api/v1/brands/{id}", brandHandler.GetByID)
+	r.Get("/api/v1/delivery-options", deliveryHandler.List)
 
 	// --- Cart (works for both logged-in users and guests) ---
 	r.Group(func(r chi.Router) {
@@ -509,7 +515,14 @@ func main() {
 			r.Delete("/api/v1/admin/products/{id}/images/{imageId}", productHandler.DeleteImage)
 
 			r.Post("/api/v1/admin/categories", categoryHandler.Create)
+			r.Put("/api/v1/admin/categories/{id}", categoryHandler.Update)
+			r.Delete("/api/v1/admin/categories/{id}", categoryHandler.Delete)
 			r.Post("/api/v1/admin/brands", brandHandler.Create)
+
+			r.Get("/api/v1/admin/delivery-options", deliveryHandler.AdminList)
+			r.Post("/api/v1/admin/delivery-options", deliveryHandler.Create)
+			r.Put("/api/v1/admin/delivery-options/{id}", deliveryHandler.Update)
+			r.Delete("/api/v1/admin/delivery-options/{id}", deliveryHandler.Delete)
 		})
 
 		// Order management + review moderation — admin + support.

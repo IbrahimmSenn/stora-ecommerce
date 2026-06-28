@@ -212,7 +212,20 @@ export type Brand = {
   name: string
 }
 
-export type ShippingMethod = 'standard' | 'express'
+// Shipping method codes are admin-managed (see DeliveryOption), so this is an
+// open string rather than a fixed union. 'standard'/'express' are the seeded
+// defaults.
+export type ShippingMethod = string
+
+export type DeliveryOption = {
+  id: string
+  code: string
+  label: string
+  price_cents: number
+  eta_label: string
+  sort_order: number
+  active: boolean
+}
 
 export type CheckoutAddress = {
   recipient_name: string
@@ -496,6 +509,27 @@ export const api = {
     request<Category>(`/api/v1/categories/${encodeURIComponent(slug)}`),
   adminCreateCategory: (body: { name: string; slug: string; parent_id?: string }) =>
     request<Category>('/api/v1/admin/categories', { method: 'POST', body }),
+  adminUpdateCategory: (id: string, body: { name: string; slug: string; parent_id?: string }) =>
+    request<Category>(`/api/v1/admin/categories/${id}`, { method: 'PUT', body }),
+  adminDeleteCategory: (id: string) =>
+    request<void>(`/api/v1/admin/categories/${id}`, { method: 'DELETE' }),
+  listDeliveryOptions: () => request<DeliveryOption[]>('/api/v1/delivery-options'),
+  adminListDeliveryOptions: () =>
+    request<DeliveryOption[]>('/api/v1/admin/delivery-options'),
+  adminCreateDeliveryOption: (body: {
+    code: string
+    label: string
+    price_cents: number
+    eta_label: string
+    sort_order: number
+    active?: boolean
+  }) => request<DeliveryOption>('/api/v1/admin/delivery-options', { method: 'POST', body }),
+  adminUpdateDeliveryOption: (
+    id: string,
+    body: { label: string; price_cents: number; eta_label: string; sort_order: number; active?: boolean },
+  ) => request<DeliveryOption>(`/api/v1/admin/delivery-options/${id}`, { method: 'PUT', body }),
+  adminDeleteDeliveryOption: (id: string) =>
+    request<void>(`/api/v1/admin/delivery-options/${id}`, { method: 'DELETE' }),
   listBrands: () => request<Brand[]>('/api/v1/brands'),
   adminCreateBrand: (body: { name: string }) =>
     request<Brand>('/api/v1/admin/brands', { method: 'POST', body }),

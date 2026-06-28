@@ -3,7 +3,7 @@
 export type CheckoutFormState = {
   email: string
   phone: string
-  shipping_method: 'standard' | 'express'
+  shipping_method: string
   recipient_name: string
   line1: string
   line2: string
