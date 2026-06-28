@@ -143,6 +143,8 @@ HTTP → Handler (decode/validate) → Service (business logic) → Repository (
 
 Each layer talks through Go interfaces — services are mock-tested in isolation. Raw SQL via pgx, no ORM. A `RefunderFunc` adapter wired in `cmd/api/main.go` breaks the `orders ↔ payments` cycle. The Stripe webhook updates the database synchronously (order is `paid` before the webhook returns 200); the confirmation email is a side effect over RabbitMQ.
 
+This is a modular monolith built to split into services without a rewrite. Rate limiting and the read cache sit behind interfaces (in-memory by default, Redis via `REDIS_URL`) so the app scales horizontally behind a load balancer. See [docs/scaling.md](docs/scaling.md) for the seams, extraction order, and database scaling levers, and [docs/security.md](docs/security.md) for the CIA-triad data-protection model.
+
 ### Data model
 
 Commerce tables added on top of the Project 1 identity + catalog schema. The encrypted columns (`*_encrypted`, `*_enc`) are AES-256-GCM bytea — see [PII encryption at rest](#pii-encryption-at-rest).
