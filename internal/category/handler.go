@@ -74,3 +74,52 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	response.JSON(w, http.StatusCreated, c)
 }
+
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	id := chi.URLParam(r, "id")
+
+	var req UpdateCategoryRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	c, err := h.service.Update(r.Context(), id, req)
+	if err != nil {
+		var ve validator.ValidationErrors
+		switch {
+		case errors.As(err, &ve):
+			response.Error(w, http.StatusBadRequest, "name and slug are required")
+		case errors.Is(err, ErrCategoryNotFound):
+			response.Error(w, http.StatusNotFound, "category not found")
+		case errors.Is(err, ErrCategoryExists):
+			response.Error(w, http.StatusConflict, "another category already uses that slug")
+		default:
+			response.Error(w, http.StatusInternalServerError, "internal server error")
+		}
+		return
+	}
+	response.JSON(w, http.StatusOK, c)
+}
+
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	err := h.service.Delete(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrCategoryNotFound):
+			response.Error(w, http.StatusNotFound, "category not found")
+		case errors.Is(err, ErrCategoryInUse):
+			response.Error(w, http.StatusConflict,
+				"this category has products or subcategories — reassign or remove them before deleting")
+		default:
+			response.Error(w, http.StatusInternalServerError, "internal server error")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

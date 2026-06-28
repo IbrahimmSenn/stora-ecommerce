@@ -18,6 +18,8 @@ type Service interface {
 	GetByID(ctx context.Context, id string) (*Category, error)
 	GetBySlug(ctx context.Context, slug string) (*Category, error)
 	Create(ctx context.Context, req CreateCategoryRequest) (*Category, error)
+	Update(ctx context.Context, id string, req UpdateCategoryRequest) (*Category, error)
+	Delete(ctx context.Context, id string) error
 }
 
 const (
@@ -107,6 +109,40 @@ func (s *service) Create(ctx context.Context, req CreateCategoryRequest) (*Categ
 	}
 	s.invalidate(ctx)
 	return c, nil
+}
+
+func (s *service) Update(ctx context.Context, id string, req UpdateCategoryRequest) (*Category, error) {
+	if err := s.validate.Struct(req); err != nil {
+		return nil, err
+	}
+
+	var parentID *uuid.UUID
+	if req.ParentID != nil && *req.ParentID != "" {
+		parsed, err := uuid.Parse(*req.ParentID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid parent_id: %w", err)
+		}
+		// A category cannot be its own parent.
+		if parsed.String() == id {
+			return nil, fmt.Errorf("category cannot be its own parent")
+		}
+		parentID = &parsed
+	}
+
+	c, err := s.repo.Update(ctx, id, req.Name, req.Slug, parentID)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidate(ctx)
+	return c, nil
+}
+
+func (s *service) Delete(ctx context.Context, id string) error {
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.invalidate(ctx)
+	return nil
 }
 
 // invalidate drops the cached list/tree so a new category shows immediately
