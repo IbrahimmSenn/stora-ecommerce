@@ -120,7 +120,6 @@ services:
       TLS_KEY_FILE: /app/certs/server.key
     volumes:
       - uploads:/app/uploads
-      - certs:/app/certs
     ports:
       - "8080:8080"
       - "8443:8443"
@@ -133,4 +132,3 @@ services:
 volumes:
   pgdata:
   uploads:
-  certs:
