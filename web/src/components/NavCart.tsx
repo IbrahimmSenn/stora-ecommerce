@@ -6,13 +6,14 @@
  * motion.
  */
 import { useEffect, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
 import { useCart } from '../cart/useCart'
+import { useCartPanel } from '../cart/useCartPanel'
 import { useReducedMotion } from '../lib/motion'
-import { ShoppingBag } from './icons'
+import { ShoppingCart } from './icons'
 
 export function NavCart({ onDark = false }: { onDark?: boolean } = {}) {
   const { itemCount } = useCart()
+  const { open } = useCartPanel()
   const reduced = useReducedMotion()
   const [pulse, setPulse] = useState(false)
   const prev = useRef(itemCount)
@@ -32,30 +33,26 @@ export function NavCart({ onDark = false }: { onDark?: boolean } = {}) {
 
   const label =
     itemCount === 0
-      ? 'Cart, empty'
-      : `Cart, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}`
+      ? 'Open cart, empty'
+      : `Open cart, ${itemCount} ${itemCount === 1 ? 'item' : 'items'}`
 
   return (
-    <NavLink
-      to="/cart"
+    <button
+      type="button"
+      onClick={(e) => open(e.currentTarget)}
       aria-label={label}
-      className={({ isActive }) =>
-        `relative inline-flex h-10 w-10 md:h-9 md:w-9 items-center justify-center transition-colors ${
-          onDark
-            ? isActive
-              ? 'text-on-primary'
-              : 'text-on-primary/80 hover:text-on-primary'
-            : isActive
-              ? 'text-ink'
-              : 'text-ink-soft hover:text-ink'
-        }`
-      }
+      aria-haspopup="dialog"
+      className={`relative inline-flex h-12 w-12 md:h-11 md:w-11 items-center justify-center transition-colors cursor-pointer ${
+        onDark
+          ? 'text-on-primary/80 hover:text-on-primary'
+          : 'text-ink-soft hover:text-ink'
+      }`}
     >
-      <ShoppingBag size={18} strokeWidth={1.5} aria-hidden />
+      <ShoppingCart size={26} strokeWidth={1.75} aria-hidden />
       {itemCount > 0 && (
         <span
           aria-hidden
-          className="tnum absolute -top-0.5 -right-0.5 min-w-[1.1rem] h-[1.1rem] px-1 inline-flex items-center justify-center bg-accent text-on-accent text-[0.65rem] leading-none rounded-full"
+          className="tnum absolute top-0.5 left-1 min-w-[1.25rem] h-[1.25rem] px-1 inline-flex items-center justify-center bg-accent text-on-accent text-[0.7rem] font-semibold leading-none rounded-full"
           style={{
             transform: pulse ? 'scale(1.15)' : 'scale(1)',
             transition: reduced
@@ -67,6 +64,6 @@ export function NavCart({ onDark = false }: { onDark?: boolean } = {}) {
           {itemCount > 99 ? '99+' : itemCount}
         </span>
       )}
-    </NavLink>
+    </button>
   )
 }

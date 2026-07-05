@@ -29,6 +29,7 @@ import { AdminAuditPage } from './admin/AdminAuditPage'
 import { NotFoundPage } from './components/NotFoundPage'
 import { AboutPage } from './pages/AboutPage'
 import { ContactPage } from './pages/ContactPage'
+import { ScrollToTop } from './components/ScrollToTop'
 
 function App() {
   return (
@@ -85,6 +86,7 @@ function App() {
       </Routes>
       </main>
       <Footer />
+      <ScrollToTop />
     </>
   )
 }

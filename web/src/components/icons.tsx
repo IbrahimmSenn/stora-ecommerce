@@ -9,6 +9,7 @@ export {
   Minus,
   Search,
   ShoppingBag,
+  ShoppingCart,
   User,
   Menu,
   Sun,
@@ -21,4 +22,8 @@ export {
   Play,
   Pause,
   Check,
+  ArrowUp,
+  LayoutGrid,
+  List,
+  SlidersHorizontal,
 } from 'lucide-react'

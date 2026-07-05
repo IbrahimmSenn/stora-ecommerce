@@ -18,6 +18,12 @@ export function CartPanelProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const open = useCallback((trigger?: HTMLElement | null) => {
+    triggerRef.current = trigger ?? null
+    setAdded(null)
+    setIsOpen(true)
+  }, [])
+
   const close = useCallback(() => {
     setIsOpen(false)
     // Return focus to the trigger once the slide-out has begun. 50ms is
@@ -35,8 +41,8 @@ export function CartPanelProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<CartPanelState>(
-    () => ({ isOpen, added, openWith, close }),
-    [isOpen, added, openWith, close],
+    () => ({ isOpen, added, openWith, open, close }),
+    [isOpen, added, openWith, open, close],
   )
 
   return (

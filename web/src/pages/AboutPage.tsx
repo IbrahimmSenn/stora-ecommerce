@@ -4,9 +4,9 @@ import { Masthead } from '../components/Masthead'
 import { Seo } from '../components/Seo'
 
 const team = [
-  { name: 'Mara Ellison', role: 'Founder & buyer' },
-  { name: 'Tomas Reyes', role: 'Operations' },
-  { name: 'Aiko Tanaka', role: 'Design & web' },
+  { name: 'Ibrahim Sen', role: 'Founder & buyer' },
+  { name: 'Eminem', role: 'Operations' },
+  { name: 'Thanos', role: 'Design & web' },
 ]
 
 const socials = [

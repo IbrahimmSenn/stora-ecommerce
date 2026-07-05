@@ -18,6 +18,7 @@ import { Skeleton } from '../components/Skeleton'
 import { Minus, Plus } from '../components/icons'
 import { StarRating } from '../reviews/StarRating'
 import { ReviewsSection } from '../reviews/ReviewsSection'
+import { RelatedProducts } from './RelatedProducts'
 
 function StockSignal({ qty }: { qty: number }) {
   if (qty === 0)
@@ -384,6 +385,8 @@ export function ProductDetailPage() {
           </div>
         </aside>
       </div>
+
+      <RelatedProducts productId={product.id} categoryId={product.category_id} />
 
       <ReviewsSection productId={product.id} />
     </Page>

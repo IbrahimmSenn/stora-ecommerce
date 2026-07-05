@@ -11,6 +11,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useCart } from './useCart'
 import { useCartPanel } from './useCartPanel'
 import { formatPrice } from '../lib/api'
+import type { CartItem } from '../lib/api'
 import { useReducedMotion } from '../lib/motion'
 
 const FOCUSABLE =
@@ -76,7 +77,6 @@ export function CartPanel() {
   }
 
   const itemCount = cart?.items.reduce((sum, it) => sum + it.quantity, 0) ?? 0
-  const lineTotal = added ? added.unitPriceCents * added.quantity : 0
 
   // Render even when closed so transitions play; toggle visibility via state.
   return createPortal(
@@ -120,7 +120,7 @@ export function CartPanel() {
           isOpen={isOpen}
           reduced={reduced}
           added={added}
-          lineTotal={lineTotal}
+          items={cart?.items ?? []}
           subtotal={cart?.total ?? 0}
           itemCount={itemCount}
           onClose={close}
@@ -135,7 +135,7 @@ function PanelContent({
   isOpen,
   reduced,
   added,
-  lineTotal,
+  items,
   subtotal,
   itemCount,
   onClose,
@@ -143,7 +143,7 @@ function PanelContent({
   isOpen: boolean
   reduced: boolean
   added: ReturnType<typeof useCartPanel>['added']
-  lineTotal: number
+  items: CartItem[]
   subtotal: number
   itemCount: number
   onClose: () => void
@@ -158,15 +158,15 @@ function PanelContent({
       : `opacity 480ms var(--ease-out-quart) ${120 + i * 80}ms, transform 480ms var(--ease-out-quart) ${120 + i * 80}ms`,
   })
 
+  const isEmpty = items.length === 0
+
   return (
     <>
       <header className="px-8 pt-10 pb-6 flex items-baseline justify-between gap-4">
         <div style={enter(0)}>
           <p className="uc-tight text-[0.7rem] text-ink-faint mb-2">Cart</p>
-          <h2
-            className="font-display text-xl text-ink leading-none font-bold"
-          >
-            Added to cart
+          <h2 className="font-display text-xl text-ink leading-none font-bold">
+            {added ? 'Added to cart' : 'Your cart'}
           </h2>
         </div>
         <button
@@ -179,66 +179,85 @@ function PanelContent({
         </button>
       </header>
 
-      {added && (
-        <div className="px-8 pb-6" style={enter(1)}>
-          <div className="relative border-t border-b border-rule py-5">
-            <Wash isOpen={isOpen} reduced={reduced} />
-            <div
-              className="flex items-center gap-4"
-              aria-live="polite"
-            >
-              <div className="h-14 w-14 bg-sunken shrink-0 overflow-hidden" aria-hidden>
-                {added.imageUrl ? (
-                  <img
-                    src={added.imageUrl}
-                    alt=""
-                    loading="lazy"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center px-1">
-                    <span className="text-[0.5rem] text-ink-faint uc-tight text-center leading-tight line-clamp-2">
-                      {added.productName}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-ink truncate">{added.productName}</p>
-                <p className="text-xs text-ink-faint tnum mt-1">
-                  {formatPrice(added.unitPriceCents)} × {added.quantity}
-                </p>
-              </div>
-              <p className="tnum text-ink shrink-0">{formatPrice(lineTotal)}</p>
-            </div>
-          </div>
+      {isEmpty ? (
+        <div className="px-8 pb-10 flex-1" style={enter(1)} aria-live="polite">
+          <p className="text-sm text-ink-soft border-t border-rule pt-6">
+            Your cart is empty.
+          </p>
         </div>
+      ) : (
+        <ul
+          className="px-8 flex-1 overflow-y-auto divide-y divide-rule border-y border-rule"
+          style={enter(1)}
+          aria-live="polite"
+        >
+          {items.map((it) => {
+            const justAdded = added?.productId === it.product_id
+            return (
+              <li key={it.id} className="relative py-4 flex items-center gap-4">
+                {justAdded && <Wash isOpen={isOpen} reduced={reduced} />}
+                <div className="h-14 w-14 bg-sunken shrink-0 overflow-hidden" aria-hidden>
+                  {it.image_url ? (
+                    <img
+                      src={it.image_url}
+                      alt=""
+                      loading="lazy"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center px-1">
+                      <span className="text-[0.5rem] text-ink-faint uc-tight text-center leading-tight line-clamp-2">
+                        {it.product_name}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/product/${it.product_id}`}
+                    className="text-ink truncate block hover:text-accent transition-colors"
+                  >
+                    {it.product_name}
+                  </Link>
+                  <p className="text-xs text-ink-faint tnum mt-1">
+                    {formatPrice(it.product_price)} × {it.quantity}
+                  </p>
+                </div>
+                <p className="tnum text-ink shrink-0">
+                  {formatPrice(it.product_price * it.quantity)}
+                </p>
+              </li>
+            )
+          })}
+        </ul>
       )}
 
-      <div className="px-8 mt-auto pb-10 flex flex-col gap-6" style={enter(2)}>
-        <dl className="flex items-baseline justify-between">
-          <dt className="uc-tight text-[0.7rem] text-ink-faint">
-            Subtotal{' '}
-            <span className="text-rule-strong mx-1" aria-hidden>
-              /
-            </span>{' '}
-            <span className="tnum">{itemCount}</span>{' '}
-            {itemCount === 1 ? 'item' : 'items'}
-          </dt>
-          <dd
-            className="font-display tnum text-ink text-[clamp(1.25rem,2.5vw,1.75rem)] leading-none font-bold"
-          >
-            {formatPrice(subtotal)}
-          </dd>
-        </dl>
+      <div className="px-8 mt-auto pt-6 pb-10 flex flex-col gap-6" style={enter(2)}>
+        {!isEmpty && (
+          <dl className="flex items-baseline justify-between">
+            <dt className="uc-tight text-[0.7rem] text-ink-faint">
+              Subtotal{' '}
+              <span className="text-rule-strong mx-1" aria-hidden>
+                /
+              </span>{' '}
+              <span className="tnum">{itemCount}</span>{' '}
+              {itemCount === 1 ? 'item' : 'items'}
+            </dt>
+            <dd className="font-display tnum text-ink text-[clamp(1.25rem,2.5vw,1.75rem)] leading-none font-bold">
+              {formatPrice(subtotal)}
+            </dd>
+          </dl>
+        )}
 
         <div className="flex flex-col gap-2">
-          <Link
-            to="/cart"
-            className="bg-accent text-on-accent hover:bg-accent-soft transition-colors px-5 py-3 text-sm tracking-[0.01em] text-center"
-          >
-            View cart
-          </Link>
+          {!isEmpty && (
+            <Link
+              to="/cart"
+              className="bg-accent text-on-accent hover:bg-accent-soft transition-colors px-5 py-3 text-sm tracking-[0.01em] text-center"
+            >
+              View cart
+            </Link>
+          )}
           <button
             type="button"
             onClick={onClose}
