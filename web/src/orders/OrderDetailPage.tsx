@@ -6,6 +6,7 @@ import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { useAuth } from '../auth/useAuth'
 import { StatusBadge, formatStatus } from './OrderStatus'
+import { OrderItemReview } from './OrderItemReview'
 
 export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -17,6 +18,25 @@ export function OrderDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [etaByCode, setEtaByCode] = useState<Record<string, string>>({})
+
+  // Delivery ETA labels are admin-managed; load them once to translate the
+  // order's shipping_method code into a human estimate.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listDeliveryOptions()
+      .then((opts) => {
+        if (cancelled) return
+        setEtaByCode(Object.fromEntries(opts.map((o) => [o.code, o.eta_label])))
+      })
+      .catch(() => {
+        // Non-fatal — we just won't show an ETA.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -124,6 +144,9 @@ export function OrderDetailPage() {
   const { order, items, address } = data
   const cancellable = order.status === 'pending_payment' || order.status === 'paid'
   const retryable = order.status === 'payment_failed'
+  const settled = ['paid', 'processing', 'shipped', 'delivered'].includes(order.status)
+  const reviewableItems = items.filter((it) => it.product_id)
+  const showReviewPrompt = isConfirmation && settled && reviewableItems.length > 0
 
   return (
     <Page width="max-w-4xl">
@@ -173,6 +196,9 @@ export function OrderDetailPage() {
           label="Shipping"
           value={`${order.shipping_method.charAt(0).toUpperCase()}${order.shipping_method.slice(1)}`}
         />
+        {etaByCode[order.shipping_method] && settled && (
+          <Detail label="Estimated delivery" value={etaByCode[order.shipping_method]} />
+        )}
         <Detail label="Email" value={order.email} />
         {order.phone && <Detail label="Phone" value={order.phone} />}
       </dl>
@@ -183,9 +209,25 @@ export function OrderDetailPage() {
         </h2>
         <ul className="divide-y divide-rule border-y border-rule">
           {items.map((it) => (
-            <li key={it.id} className="flex justify-between gap-6 py-5">
+            <li key={it.id} className="flex items-center gap-4 py-5">
+              {it.product_id ? (
+                <Link to={`/product/${it.product_id}`} className="shrink-0" title={it.product_name}>
+                  <ItemThumb url={it.thumbnail_url} name={it.product_name} />
+                </Link>
+              ) : (
+                <ItemThumb url={it.thumbnail_url} name={it.product_name} />
+              )}
               <div className="flex-1 min-w-0">
-                <p className="text-ink">{it.product_name}</p>
+                {it.product_id ? (
+                  <Link
+                    to={`/product/${it.product_id}`}
+                    className="text-ink hover:text-accent transition-colors underline-offset-4 hover:underline decoration-rule-strong"
+                  >
+                    {it.product_name}
+                  </Link>
+                ) : (
+                  <p className="text-ink">{it.product_name}</p>
+                )}
                 <p className="text-xs text-ink-faint tnum mt-1">
                   {formatPrice(it.unit_price_cents)} × {it.quantity}
                 </p>
@@ -231,6 +273,20 @@ export function OrderDetailPage() {
         </address>
       </section>
 
+      {showReviewPrompt && (
+        <section className="border-t border-rule pt-8 mb-14">
+          <h2 className="uc-tight text-[0.7rem] text-ink-faint mb-1">Rate your purchase</h2>
+          <p className="text-sm text-ink-soft mb-4">
+            Bought it — now tell other shoppers what you think. Reviews go live right away.
+          </p>
+          <ul className="divide-y divide-rule border-y border-rule">
+            {reviewableItems.map((it) => (
+              <OrderItemReview key={it.id} item={it} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {retryable && (
         <div className="border-t border-rule pt-8 mb-8">
           <Link
@@ -266,6 +322,18 @@ export function OrderDetailPage() {
         </div>
       )}
     </Page>
+  )
+}
+
+function ItemThumb({ url, name }: { url?: string | null; name: string }) {
+  return (
+    <span className="block h-14 w-14 shrink-0 overflow-hidden bg-sunken" style={{ borderRadius: 0 }}>
+      {url ? (
+        <img src={url} alt={name} className="h-full w-full object-cover" loading="lazy" />
+      ) : (
+        <span aria-hidden className="block h-full w-full" />
+      )}
+    </span>
   )
 }
 

@@ -14,7 +14,7 @@ const FILTERS = [
 
 export function AdminReviewsPage() {
   const [reviews, setReviews] = useState<ModerationReview[]>([])
-  const [filter, setFilter] = useState('pending')
+  const [filter, setFilter] = useState('approved')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)

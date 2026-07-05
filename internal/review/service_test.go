@@ -25,7 +25,7 @@ func TestCreate_AllowsWhenPurchased(t *testing.T) {
 	rv, err := svc.Create(context.Background(), validUser(), validProduct(), CreateReviewRequest{Rating: 4})
 	require.NoError(t, err)
 	assert.Equal(t, 4, rv.Rating)
-	assert.Equal(t, StatusPending, rv.Status, "new reviews must start pending for moderation")
+	assert.Equal(t, StatusApproved, rv.Status, "new reviews are published immediately")
 }
 
 func TestCreate_RejectsRatingOutOfRange(t *testing.T) {
@@ -82,7 +82,7 @@ type stubReviewRepo struct {
 }
 
 func (s *stubReviewRepo) Create(_ context.Context, userID, productID uuid.UUID, rating int, comment *string) (*Review, error) {
-	return &Review{ID: uuid.New(), UserID: userID, ProductID: productID, Rating: rating, Comment: comment, Status: StatusPending}, nil
+	return &Review{ID: uuid.New(), UserID: userID, ProductID: productID, Rating: rating, Comment: comment, Status: StatusApproved}, nil
 }
 
 func (s *stubReviewRepo) ListByProduct(_ context.Context, p ListParams) (*ListResult, error) {

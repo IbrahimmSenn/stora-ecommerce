@@ -1,0 +1,2 @@
+-- Irreversible data migration: the original 'pending' status of each review is
+-- not recorded, so there is nothing to roll back.

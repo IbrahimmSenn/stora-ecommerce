@@ -7,8 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// Moderation states. New reviews start Pending; only Approved reviews are
-// shown publicly and counted toward a product's average rating.
+// Moderation states. New reviews are published as Approved immediately; admins
+// can Hide or delete inappropriate ones afterward. Only Approved reviews are
+// shown publicly and counted toward a product's average rating. (Pending is
+// retained for the moderation queue and any pre-existing rows.)
 const (
 	StatusPending  = "pending"
 	StatusApproved = "approved"

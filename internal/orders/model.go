@@ -43,9 +43,18 @@ type OrderItem struct {
 	OrderID        uuid.UUID  `json:"order_id"`
 	ProductID      *uuid.UUID `json:"product_id,omitempty"`
 	ProductName    string     `json:"product_name"`
+	ThumbnailURL   *string    `json:"thumbnail_url,omitempty"`
 	UnitPriceCents int64      `json:"unit_price_cents"`
 	Quantity       int        `json:"quantity"`
 	CreatedAt      time.Time  `json:"created_at"`
+}
+
+// OrderItemPreview is a compact line-item used to show product thumbnails on the
+// order history list. ProductID is nil when the product has since been deleted.
+type OrderItemPreview struct {
+	ProductID    *uuid.UUID `json:"product_id,omitempty"`
+	ProductName  string     `json:"product_name"`
+	ThumbnailURL *string    `json:"thumbnail_url,omitempty"`
 }
 
 type ShippingAddress struct {
@@ -65,12 +74,13 @@ type OrderResponse struct {
 }
 
 type OrderSummary struct {
-	ID          uuid.UUID `json:"id"`
-	OrderNumber string    `json:"order_number"`
-	Status      string    `json:"status"`
-	TotalCents  int64     `json:"total_cents"`
-	ItemCount   int       `json:"item_count"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           uuid.UUID          `json:"id"`
+	OrderNumber  string             `json:"order_number"`
+	Status       string             `json:"status"`
+	TotalCents   int64              `json:"total_cents"`
+	ItemCount    int                `json:"item_count"`
+	ItemPreviews []OrderItemPreview `json:"item_previews"`
+	CreatedAt    time.Time          `json:"created_at"`
 }
 
 // AdminOrderSummary is an order row for the admin orders table. It adds the

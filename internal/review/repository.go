@@ -41,12 +41,12 @@ func NewRepository(db *pgxpool.Pool) Repository {
 
 func (r *postgresRepository) Create(ctx context.Context, userID, productID uuid.UUID, rating int, comment *string) (*Review, error) {
 	query := `
-		INSERT INTO reviews (user_id, product_id, rating, comment)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO reviews (user_id, product_id, rating, comment, status)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, user_id, product_id, rating, comment, status, created_at, updated_at`
 
 	var rv Review
-	err := r.db.QueryRow(ctx, query, userID, productID, rating, comment).Scan(
+	err := r.db.QueryRow(ctx, query, userID, productID, rating, comment, StatusApproved).Scan(
 		&rv.ID, &rv.UserID, &rv.ProductID, &rv.Rating, &rv.Comment, &rv.Status,
 		&rv.CreatedAt, &rv.UpdatedAt,
 	)

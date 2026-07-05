@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, ApiError, formatPrice } from '../lib/api'
-import type { OrderSummary } from '../lib/api'
+import type { OrderItemPreview, OrderSummary } from '../lib/api'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { useAuth } from '../auth/useAuth'
@@ -136,12 +136,20 @@ export function OrderHistoryPage() {
       {!loading && orders && orders.length > 0 && (
         <ul className="divide-y divide-rule border-y border-rule">
           {orders.map((o) => (
-            <li key={o.id}>
-              <Link
-                to={`/orders/${o.id}`}
-                className="grid grid-cols-[7rem_1fr_auto_auto] items-baseline gap-6 py-5 group"
-              >
-                <span className="tnum text-sm text-ink group-hover:text-accent transition-colors">
+            <li
+              key={o.id}
+              className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-6 gap-y-3 py-5"
+            >
+              <div className="flex items-center">
+                {(o.item_previews ?? []).map((p, i) => (
+                  <OrderThumb key={i} preview={p} stacked={i > 0} />
+                ))}
+                {(!o.item_previews || o.item_previews.length === 0) && (
+                  <OrderThumb preview={null} stacked={false} />
+                )}
+              </div>
+              <Link to={`/orders/${o.id}`} className="group min-w-0">
+                <span className="tnum text-sm text-ink group-hover:text-accent transition-colors block truncate">
                   {o.order_number}
                 </span>
                 <span className="text-xs text-ink-faint">
@@ -150,15 +158,55 @@ export function OrderHistoryPage() {
                   <span className="tnum">{o.item_count}</span>{' '}
                   {o.item_count === 1 ? 'item' : 'items'}
                 </span>
-                <StatusBadge status={o.status} />
-                <span className="tnum text-ink min-w-[5rem] text-right">
-                  {formatPrice(o.total_cents)}
-                </span>
               </Link>
+              <StatusBadge status={o.status} />
+              <span className="tnum text-ink min-w-[5rem] text-right">
+                {formatPrice(o.total_cents)}
+              </span>
             </li>
           ))}
         </ul>
       )}
     </Page>
   )
+}
+
+function OrderThumb({
+  preview,
+  stacked,
+}: {
+  preview: OrderItemPreview | null
+  stacked: boolean
+}) {
+  const ring = stacked ? '-ml-3 ring-2 ring-bg' : ''
+  const tile = (
+    <span
+      className={`block h-10 w-10 shrink-0 overflow-hidden bg-sunken ${ring}`}
+      style={{ borderRadius: 0 }}
+    >
+      {preview?.thumbnail_url ? (
+        <img
+          src={preview.thumbnail_url}
+          alt={preview.product_name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <span aria-hidden className="block h-full w-full" />
+      )}
+    </span>
+  )
+
+  if (preview?.product_id) {
+    return (
+      <Link
+        to={`/product/${preview.product_id}`}
+        title={preview.product_name}
+        className="relative hover:z-10 hover:opacity-90 transition-opacity"
+      >
+        {tile}
+      </Link>
+    )
+  }
+  return tile
 }

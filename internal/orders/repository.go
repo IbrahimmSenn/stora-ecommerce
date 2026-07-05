@@ -95,8 +95,11 @@ func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*orderR
 	}
 
 	rows, err := r.db.Query(ctx,
-		`SELECT id, order_id, product_id, product_name, unit_price_cents, quantity, created_at
-		 FROM order_items WHERE order_id = $1 ORDER BY created_at`, id,
+		`SELECT oi.id, oi.order_id, oi.product_id, oi.product_name,
+			(SELECT COALESCE(pi.thumbnail_url, pi.card_url, pi.url) FROM product_images pi
+			 WHERE pi.product_id = oi.product_id AND pi.is_primary = true LIMIT 1) AS thumbnail_url,
+			oi.unit_price_cents, oi.quantity, oi.created_at
+		 FROM order_items oi WHERE oi.order_id = $1 ORDER BY oi.created_at`, id,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("query order items: %w", err)
@@ -107,7 +110,7 @@ func (r *postgresRepository) GetByID(ctx context.Context, id uuid.UUID) (*orderR
 	for rows.Next() {
 		var it OrderItem
 		if err := rows.Scan(
-			&it.ID, &it.OrderID, &it.ProductID, &it.ProductName,
+			&it.ID, &it.OrderID, &it.ProductID, &it.ProductName, &it.ThumbnailURL,
 			&it.UnitPriceCents, &it.Quantity, &it.CreatedAt,
 		); err != nil {
 			return nil, nil, nil, fmt.Errorf("scan order item: %w", err)
@@ -205,7 +208,64 @@ func (r *postgresRepository) listSummaries(ctx context.Context, ownerCol string,
 		}
 		out = append(out, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate order summaries: %w", err)
+	}
+
+	if err := r.attachItemPreviews(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// maxItemPreviews caps how many product thumbnails the order history list shows
+// per order row.
+const maxItemPreviews = 5
+
+// attachItemPreviews loads up to maxItemPreviews line items (with the primary
+// product thumbnail) for each order and attaches them, so the history list can
+// render product images without a round-trip per order.
+func (r *postgresRepository) attachItemPreviews(ctx context.Context, summaries []OrderSummary) error {
+	if len(summaries) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(summaries))
+	idx := make(map[uuid.UUID]int, len(summaries))
+	for i := range summaries {
+		ids[i] = summaries[i].ID
+		idx[summaries[i].ID] = i
+		summaries[i].ItemPreviews = []OrderItemPreview{}
+	}
+
+	rows, err := r.db.Query(ctx,
+		`SELECT oi.order_id, oi.product_id, oi.product_name,
+			(SELECT COALESCE(pi.thumbnail_url, pi.card_url, pi.url) FROM product_images pi
+			 WHERE pi.product_id = oi.product_id AND pi.is_primary = true LIMIT 1) AS thumbnail_url
+		 FROM order_items oi
+		 WHERE oi.order_id = ANY($1)
+		 ORDER BY oi.created_at`, ids,
+	)
+	if err != nil {
+		return fmt.Errorf("query order item previews: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var orderID uuid.UUID
+		var p OrderItemPreview
+		if err := rows.Scan(&orderID, &p.ProductID, &p.ProductName, &p.ThumbnailURL); err != nil {
+			return fmt.Errorf("scan order item preview: %w", err)
+		}
+		i, ok := idx[orderID]
+		if !ok || len(summaries[i].ItemPreviews) >= maxItemPreviews {
+			continue
+		}
+		summaries[i].ItemPreviews = append(summaries[i].ItemPreviews, p)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate order item previews: %w", err)
+	}
+	return nil
 }
 
 // ListAll returns every order (any owner) for the admin table, newest first,

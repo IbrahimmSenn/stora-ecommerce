@@ -268,9 +268,16 @@ export type OrderItem = {
   order_id: string
   product_id?: string | null
   product_name: string
+  thumbnail_url?: string | null
   unit_price_cents: number
   quantity: number
   created_at: string
+}
+
+export type OrderItemPreview = {
+  product_id?: string | null
+  product_name: string
+  thumbnail_url?: string | null
 }
 
 export type OrderResponse = {
@@ -292,6 +299,7 @@ export type OrderSummary = {
   status: string
   total_cents: number
   item_count: number
+  item_previews: OrderItemPreview[]
   created_at: string
 }
 
@@ -392,16 +400,26 @@ export const api = {
   listProducts: (params?: {
     categoryId?: string
     q?: string
+    page?: number
     pageSize?: number
     onSale?: boolean
     sort?: string
+    brandId?: string
+    minPrice?: number
+    maxPrice?: number
+    minRating?: number
   }) => {
     const qs = new URLSearchParams()
     if (params?.categoryId) qs.set('category_id', params.categoryId)
     if (params?.q) qs.set('q', params.q)
+    if (params?.page) qs.set('page', String(params.page))
     if (params?.pageSize) qs.set('page_size', String(params.pageSize))
     if (params?.onSale) qs.set('on_sale', 'true')
     if (params?.sort) qs.set('sort', params.sort)
+    if (params?.brandId) qs.set('brand_id', params.brandId)
+    if (params?.minPrice != null) qs.set('min_price', String(params.minPrice))
+    if (params?.maxPrice != null) qs.set('max_price', String(params.maxPrice))
+    if (params?.minRating != null) qs.set('min_rating', String(params.minRating))
     const s = qs.toString()
     return request<ProductsResponse>(`/api/v1/products${s ? `?${s}` : ''}`)
   },

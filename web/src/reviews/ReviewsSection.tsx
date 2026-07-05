@@ -2,8 +2,8 @@
  *
  * Shows the rating summary (average + per-star distribution), a sortable list
  * of approved reviews with helpful voting, and — for signed-in shoppers who
- * bought the product — a write-a-review form. New reviews are submitted as
- * pending and surface only after admin moderation, which the form makes clear.
+ * bought the product — a write-a-review form. New reviews are published
+ * immediately; admins can hide or delete inappropriate ones afterward.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -88,6 +88,7 @@ export function ReviewsSection({ productId }: { productId: string }) {
             initializing={initializing}
             eligibility={eligibility}
             onSubmitted={() => {
+              load(sort)
               api.reviewEligibility(productId).then(setEligibility).catch(() => {})
             }}
           />
@@ -286,7 +287,7 @@ function ReviewForm({
     return (
       <div className="border-t border-rule pt-6">
         <p className="text-sm text-ink-soft" role="status">
-          Thanks — your review was submitted and is awaiting moderation.
+          Thanks — your review is now live.
         </p>
       </div>
     )
@@ -326,7 +327,7 @@ function ReviewForm({
     try {
       await api.createReview(productId, rating, comment.trim())
       setDone(true)
-      showToast('Review submitted for moderation.')
+      showToast('Review published.')
       onSubmitted()
     } catch (err) {
       if (err instanceof ApiError) {
