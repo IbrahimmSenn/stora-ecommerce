@@ -579,6 +579,10 @@ func (s *stubRepo) UpdateStatus(_ context.Context, id uuid.UUID, status string) 
 	return nil
 }
 
+func (s *stubRepo) ListAll(_ context.Context, _ string, _, _ *time.Time, _, _ int) ([]adminOrderRow, int, error) {
+	return []adminOrderRow{}, 0, nil
+}
+
 func (s *stubRepo) ItemsForRestock(_ context.Context, orderID uuid.UUID) ([]OrderItem, error) {
 	out := []OrderItem{}
 	for _, it := range s.itemsByOrder[orderID] {

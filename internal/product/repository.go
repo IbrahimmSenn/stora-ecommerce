@@ -9,8 +9,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// salePriceConstraint is the check constraint guarding sale_price < price.
+const salePriceConstraint = "products_sale_price_below_price"
+
+// mapSalePriceErr converts a violation of the sale_price check constraint into
+// the friendly domain error; other errors pass through unchanged.
+func mapSalePriceErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.ConstraintName == salePriceConstraint {
+		return ErrInvalidSalePrice
+	}
+	return err
+}
 
 type Repository interface {
 	Search(ctx context.Context, params SearchParams) (*SearchResult, error)
@@ -20,6 +34,7 @@ type Repository interface {
 	Update(ctx context.Context, id string, p UpdateProductRequest) (*Product, error)
 	Delete(ctx context.Context, id string) error
 	AddImage(ctx context.Context, productID string, url string, isPrimary bool) (*ProductImage, error)
+	AddImageWithVariants(ctx context.Context, productID, url, thumb, card, full string, isPrimary bool) (*ProductImage, error)
 	DeleteImage(ctx context.Context, productID string, imageID string) error
 	GetImages(ctx context.Context, productID string) ([]ProductImage, error)
 	// ListByIDs returns ProductListItems for the given ids, preserving the
@@ -92,6 +107,9 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 		args = append(args, *params.MaxPrice)
 		argIdx++
 	}
+	if params.OnSale {
+		conditions = append(conditions, "p.sale_price IS NOT NULL")
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
@@ -115,6 +133,9 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 		orderClause = "ORDER BY p.price DESC"
 	case "rating":
 		orderClause = "ORDER BY avg_rating DESC"
+	case "discount":
+		// Biggest percentage off first; non-sale rows (NULL) sort last.
+		orderClause = "ORDER BY (p.price - p.sale_price)::numeric / NULLIF(p.price, 0) DESC NULLS LAST"
 	default: // "relevance" or empty
 		if hasQuery {
 			orderClause = "ORDER BY relevance DESC"
@@ -130,7 +151,7 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 	}
 
 	// Primary image subquery.
-	primaryImageSub := `(SELECT pi.url FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1)`
+	primaryImageSub := `(SELECT COALESCE(pi.card_url, pi.url) FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1)`
 
 	offset := (params.Page - 1) * params.PageSize
 
@@ -139,7 +160,7 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 		SELECT COUNT(*) FROM (
 			SELECT p.id
 			FROM products p
-			LEFT JOIN reviews rv ON rv.product_id = p.id
+			LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
 			%s
 			GROUP BY p.id
 			%s
@@ -154,7 +175,7 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 	// Main query.
 	dataQuery := fmt.Sprintf(`
 		SELECT
-			p.id, p.name, p.price, p.stock_quantity,
+			p.id, p.name, p.price, p.sale_price, p.stock_quantity,
 			c.name AS category_name,
 			b.name AS brand_name,
 			COALESCE(AVG(rv.rating), 0) AS avg_rating,
@@ -164,7 +185,7 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id
+		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
 		%s
 		GROUP BY p.id, c.name, b.name
 		%s
@@ -184,7 +205,7 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 	for rows.Next() {
 		var item ProductListItem
 		if err := rows.Scan(
-			&item.ID, &item.Name, &item.Price, &item.StockQuantity,
+			&item.ID, &item.Name, &item.Price, &item.SalePrice, &item.StockQuantity,
 			&item.CategoryName, &item.BrandName,
 			&item.AvgRating, &item.ReviewCount,
 			&item.PrimaryImage, &item.Relevance,
@@ -231,7 +252,7 @@ func (r *postgresRepository) Suggest(ctx context.Context, query string, limit in
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*ProductDetail, error) {
 	query := `
 		SELECT
-			p.id, p.name, p.description, p.price, p.stock_quantity,
+			p.id, p.name, p.description, p.price, p.sale_price, p.stock_quantity,
 			p.category_id, p.brand_id,
 			p.weight_g, p.weight_oz, p.dimensions_cm, p.dimensions_inch,
 			p.created_at, p.updated_at,
@@ -242,13 +263,13 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*ProductDe
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id
+		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
 		WHERE p.id = $1
 		GROUP BY p.id, c.name, c.slug, b.name`
 
 	var d ProductDetail
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&d.ID, &d.Name, &d.Description, &d.Price, &d.StockQuantity,
+		&d.ID, &d.Name, &d.Description, &d.Price, &d.SalePrice, &d.StockQuantity,
 		&d.CategoryID, &d.BrandID,
 		&d.WeightG, &d.WeightOz, &d.DimensionsCm, &d.DimensionsInch,
 		&d.CreatedAt, &d.UpdatedAt,
@@ -274,22 +295,25 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*ProductDe
 
 func (r *postgresRepository) Create(ctx context.Context, p Product) (*Product, error) {
 	query := `
-		INSERT INTO products (name, description, price, stock_quantity, category_id, brand_id, weight_g, dimensions_cm)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, name, description, price, stock_quantity, category_id, brand_id,
+		INSERT INTO products (name, description, price, sale_price, stock_quantity, category_id, brand_id, weight_g, dimensions_cm)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, name, description, price, sale_price, stock_quantity, category_id, brand_id,
 			weight_g, weight_oz, dimensions_cm, dimensions_inch, created_at, updated_at`
 
 	var created Product
 	err := r.db.QueryRow(ctx, query,
-		p.Name, p.Description, p.Price, p.StockQuantity,
+		p.Name, p.Description, p.Price, p.SalePrice, p.StockQuantity,
 		p.CategoryID, p.BrandID, p.WeightG, p.DimensionsCm,
 	).Scan(
-		&created.ID, &created.Name, &created.Description, &created.Price, &created.StockQuantity,
+		&created.ID, &created.Name, &created.Description, &created.Price, &created.SalePrice, &created.StockQuantity,
 		&created.CategoryID, &created.BrandID,
 		&created.WeightG, &created.WeightOz, &created.DimensionsCm, &created.DimensionsInch,
 		&created.CreatedAt, &created.UpdatedAt,
 	)
 	if err != nil {
+		if mapped := mapSalePriceErr(err); errors.Is(mapped, ErrInvalidSalePrice) {
+			return nil, mapped
+		}
 		return nil, fmt.Errorf("create product: %w", err)
 	}
 	return &created, nil
@@ -313,6 +337,13 @@ func (r *postgresRepository) Update(ctx context.Context, id string, req UpdatePr
 	if req.Price != nil {
 		setClauses = append(setClauses, fmt.Sprintf("price = $%d", argIdx))
 		args = append(args, *req.Price)
+		argIdx++
+	}
+	if req.ClearSalePrice {
+		setClauses = append(setClauses, "sale_price = NULL")
+	} else if req.SalePrice != nil {
+		setClauses = append(setClauses, fmt.Sprintf("sale_price = $%d", argIdx))
+		args = append(args, *req.SalePrice)
 		argIdx++
 	}
 	if req.StockQuantity != nil {
@@ -348,13 +379,13 @@ func (r *postgresRepository) Update(ctx context.Context, id string, req UpdatePr
 	args = append(args, id)
 	query := fmt.Sprintf(`
 		UPDATE products SET %s WHERE id = $%d
-		RETURNING id, name, description, price, stock_quantity, category_id, brand_id,
+		RETURNING id, name, description, price, sale_price, stock_quantity, category_id, brand_id,
 			weight_g, weight_oz, dimensions_cm, dimensions_inch, created_at, updated_at`,
 		strings.Join(setClauses, ", "), argIdx)
 
 	var p Product
 	err := r.db.QueryRow(ctx, query, args...).Scan(
-		&p.ID, &p.Name, &p.Description, &p.Price, &p.StockQuantity,
+		&p.ID, &p.Name, &p.Description, &p.Price, &p.SalePrice, &p.StockQuantity,
 		&p.CategoryID, &p.BrandID,
 		&p.WeightG, &p.WeightOz, &p.DimensionsCm, &p.DimensionsInch,
 		&p.CreatedAt, &p.UpdatedAt,
@@ -362,6 +393,9 @@ func (r *postgresRepository) Update(ctx context.Context, id string, req UpdatePr
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrProductNotFound
+		}
+		if mapped := mapSalePriceErr(err); errors.Is(mapped, ErrInvalidSalePrice) {
+			return nil, mapped
 		}
 		return nil, fmt.Errorf("update product: %w", err)
 	}
@@ -427,18 +461,18 @@ func (r *postgresRepository) Candidates(ctx context.Context, excludeIDs []string
 
 	query := `
 		SELECT
-			p.id, p.name, p.price, p.stock_quantity,
+			p.id, p.name, p.price, p.sale_price, p.stock_quantity,
 			c.name AS category_name,
 			b.name AS brand_name,
 			COALESCE(AVG(rv.rating), 0) AS avg_rating,
 			COUNT(rv.id) AS review_count,
-			(SELECT pi.url FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
+			(SELECT COALESCE(pi.card_url, pi.url) FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
 			NULL::float8 AS relevance,
 			p.category_id, p.brand_id
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id
+		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
 		WHERE p.stock_quantity > 0
 			AND p.id <> ALL($1::uuid[])
 		GROUP BY p.id, c.name, b.name
@@ -455,7 +489,7 @@ func (r *postgresRepository) Candidates(ctx context.Context, excludeIDs []string
 	for rows.Next() {
 		var c Candidate
 		if err := rows.Scan(
-			&c.ID, &c.Name, &c.Price, &c.StockQuantity,
+			&c.ID, &c.Name, &c.Price, &c.SalePrice, &c.StockQuantity,
 			&c.CategoryName, &c.BrandName,
 			&c.AvgRating, &c.ReviewCount,
 			&c.PrimaryImage, &c.Relevance,
@@ -504,17 +538,17 @@ func (r *postgresRepository) ListByIDs(ctx context.Context, productIDs []string)
 
 	query := `
 		SELECT
-			p.id, p.name, p.price, p.stock_quantity,
+			p.id, p.name, p.price, p.sale_price, p.stock_quantity,
 			c.name AS category_name,
 			b.name AS brand_name,
 			COALESCE(AVG(rv.rating), 0) AS avg_rating,
 			COUNT(rv.id) AS review_count,
-			(SELECT pi.url FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
+			(SELECT COALESCE(pi.card_url, pi.url) FROM product_images pi WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1) AS primary_image,
 			NULL::float8 AS relevance
 		FROM products p
 		LEFT JOIN categories c ON p.category_id = c.id
 		LEFT JOIN brands b ON p.brand_id = b.id
-		LEFT JOIN reviews rv ON rv.product_id = p.id
+		LEFT JOIN reviews rv ON rv.product_id = p.id AND rv.status = 'approved'
 		WHERE p.id = ANY($1::uuid[]) AND p.stock_quantity > 0
 		GROUP BY p.id, c.name, b.name`
 
@@ -528,7 +562,7 @@ func (r *postgresRepository) ListByIDs(ctx context.Context, productIDs []string)
 	for rows.Next() {
 		var it ProductListItem
 		if err := rows.Scan(
-			&it.ID, &it.Name, &it.Price, &it.StockQuantity,
+			&it.ID, &it.Name, &it.Price, &it.SalePrice, &it.StockQuantity,
 			&it.CategoryName, &it.BrandName,
 			&it.AvgRating, &it.ReviewCount,
 			&it.PrimaryImage, &it.Relevance,
@@ -547,8 +581,30 @@ func (r *postgresRepository) ListByIDs(ctx context.Context, productIDs []string)
 	return out, nil
 }
 
+func (r *postgresRepository) AddImageWithVariants(ctx context.Context, productID, url, thumb, card, full string, isPrimary bool) (*ProductImage, error) {
+	if isPrimary {
+		if _, err := r.db.Exec(ctx,
+			`UPDATE product_images SET is_primary = false WHERE product_id = $1 AND is_primary = true`,
+			productID); err != nil {
+			return nil, fmt.Errorf("unset primary image: %w", err)
+		}
+	}
+
+	query := `INSERT INTO product_images (product_id, url, thumbnail_url, card_url, full_url, is_primary)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, product_id, url, thumbnail_url, card_url, full_url, is_primary`
+	var img ProductImage
+	err := r.db.QueryRow(ctx, query, productID, url, thumb, card, full, isPrimary).Scan(
+		&img.ID, &img.ProductID, &img.URL, &img.ThumbnailURL, &img.CardURL, &img.FullURL, &img.IsPrimary,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("add image with variants: %w", err)
+	}
+	return &img, nil
+}
+
 func (r *postgresRepository) GetImages(ctx context.Context, productID string) ([]ProductImage, error) {
-	query := `SELECT id, product_id, url, is_primary FROM product_images
+	query := `SELECT id, product_id, url, thumbnail_url, card_url, full_url, is_primary FROM product_images
 		WHERE product_id = $1 ORDER BY is_primary DESC, created_at`
 	rows, err := r.db.Query(ctx, query, productID)
 	if err != nil {
@@ -559,10 +615,14 @@ func (r *postgresRepository) GetImages(ctx context.Context, productID string) ([
 	var images []ProductImage
 	for rows.Next() {
 		var img ProductImage
-		if err := rows.Scan(&img.ID, &img.ProductID, &img.URL, &img.IsPrimary); err != nil {
+		if err := rows.Scan(&img.ID, &img.ProductID, &img.URL,
+			&img.ThumbnailURL, &img.CardURL, &img.FullURL, &img.IsPrimary); err != nil {
 			return nil, fmt.Errorf("scan image: %w", err)
 		}
 		images = append(images, img)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate images: %w", err)
 	}
 	if images == nil {
 		images = []ProductImage{}

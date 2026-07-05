@@ -8,12 +8,15 @@
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, ApiError, formatPrice } from '../lib/api'
+import { api, ApiError, formatPrice, discountPercent } from '../lib/api'
 import type { ProductDetail, ProductImage } from '../lib/api'
 import { useCart } from '../cart/useCart'
 import { useCartPanel } from '../cart/useCartPanel'
 import { Page } from '../components/Page'
+import { Seo } from '../components/Seo'
 import { Minus, Plus } from '../components/icons'
+import { StarRating } from '../reviews/StarRating'
+import { ReviewsSection } from '../reviews/ReviewsSection'
 
 function StockSignal({ qty }: { qty: number }) {
   if (qty === 0)
@@ -100,6 +103,7 @@ export function ProductDetailPage() {
   if (loadError || !product) {
     return (
       <Page>
+        <Seo title="Product not found" noindex />
         <div className="flex flex-col gap-6">
           <p className="text-sm text-accent">{loadError ?? 'Product not found.'}</p>
           <Link to="/" className="text-sm text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors">
@@ -125,7 +129,7 @@ export function ProductDetailPage() {
         {
           productId: product.id,
           productName: product.name,
-          unitPriceCents: product.price,
+          unitPriceCents: product.sale_price ?? product.price,
           quantity,
           imageUrl: images[0]?.url ?? null,
         },
@@ -138,8 +142,14 @@ export function ProductDetailPage() {
     }
   }
 
+  const metaDesc = (product.description ?? `${product.name} — available now at Stora.`)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 157)
+
   return (
     <Page>
+      <Seo title={product.name.slice(0, 50)} description={metaDesc} />
       <nav aria-label="Breadcrumb" className="uc-tight text-[0.7rem] text-ink-faint mb-12 flex flex-wrap items-center gap-x-2">
         <Link to="/" className="hover:text-ink transition-colors">
           Shop
@@ -176,7 +186,7 @@ export function ProductDetailPage() {
             {mainImage ? (
               <img
                 key={mainImage.id}
-                src={mainImage.url}
+                src={mainImage.full_url ?? mainImage.url}
                 alt={`${product.name} — view ${imageIdx + 1}`}
                 className="w-full h-full object-cover"
               />
@@ -201,7 +211,7 @@ export function ProductDetailPage() {
                         : 'border-transparent hover:border-rule-strong'
                     }`}
                   >
-                    <img src={img.url} alt="" className="w-full h-full object-cover" />
+                    <img src={img.thumbnail_url ?? img.url} alt="" className="w-full h-full object-cover" />
                   </button>
                 </li>
               ))}
@@ -217,6 +227,18 @@ export function ProductDetailPage() {
             </h1>
             {product.brand_name && (
               <p className="text-sm text-ink-soft mt-2">{product.brand_name}</p>
+            )}
+            {product.review_count > 0 ? (
+              <a href="#reviews-heading" className="inline-flex mt-3 group/rating">
+                <StarRating
+                  value={product.avg_rating}
+                  size={15}
+                  count={product.review_count}
+                  className="group-hover/rating:[&_*]:text-accent"
+                />
+              </a>
+            ) : (
+              <p className="uc-tight text-[0.7rem] text-ink-faint mt-3">No reviews yet.</p>
             )}
           </div>
 
@@ -260,9 +282,29 @@ export function ProductDetailPage() {
         {/* Sticky purchase column */}
         <aside className="md:col-span-12 lg:col-span-3 md:sticky md:top-24 md:self-start">
           <div className="flex flex-col gap-6 border-t border-rule pt-6 lg:border-t-0 lg:pt-0">
-            <p className="font-display tnum text-ink text-[clamp(1.5rem,2.5vw,2rem)] leading-none font-bold">
-              {formatPrice(product.price)}
-            </p>
+            {(() => {
+              const off = discountPercent(product.price, product.sale_price)
+              if (off == null) {
+                return (
+                  <p className="font-display tnum text-ink text-[clamp(1.5rem,2.5vw,2rem)] leading-none font-bold">
+                    {formatPrice(product.price)}
+                  </p>
+                )
+              }
+              return (
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <p className="font-display tnum text-accent text-[clamp(1.5rem,2.5vw,2rem)] leading-none font-bold">
+                    {formatPrice(product.sale_price!)}
+                  </p>
+                  <p className="tnum text-ink-faint line-through">
+                    {formatPrice(product.price)}
+                  </p>
+                  <span className="rounded bg-accent px-1.5 py-0.5 text-[0.7rem] font-semibold text-on-accent tnum">
+                    -{off}%
+                  </span>
+                </div>
+              )
+            })()}
 
             <div className="flex flex-col gap-2">
               <label className="uc-tight text-[0.7rem] text-ink-faint">
@@ -323,6 +365,8 @@ export function ProductDetailPage() {
           </div>
         </aside>
       </div>
+
+      <ReviewsSection productId={product.id} />
     </Page>
   )
 }

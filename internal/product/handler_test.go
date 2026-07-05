@@ -98,6 +98,12 @@ func (m *mockProductRepo) AddImage(_ context.Context, productID string, url stri
 	return &img, nil
 }
 
+func (m *mockProductRepo) AddImageWithVariants(_ context.Context, productID, url, thumb, card, full string, isPrimary bool) (*ProductImage, error) {
+	img := ProductImage{ID: uuid.New(), ProductID: uuid.MustParse(productID), URL: url, ThumbnailURL: &thumb, CardURL: &card, FullURL: &full, IsPrimary: isPrimary}
+	m.images[productID] = append(m.images[productID], img)
+	return &img, nil
+}
+
 func (m *mockProductRepo) DeleteImage(_ context.Context, productID string, imageID string) error {
 	imgs := m.images[productID]
 	for i, img := range imgs {

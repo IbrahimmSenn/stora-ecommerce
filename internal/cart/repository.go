@@ -222,7 +222,7 @@ func (r *postgresRepository) DeleteCart(ctx context.Context, cartID uuid.UUID) e
 // GetItems returns all items in the cart joined with product info for display.
 func (r *postgresRepository) GetItems(ctx context.Context, cartID uuid.UUID) ([]CartItemDetail, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT ci.id, ci.product_id, p.name, p.price,
+		`SELECT ci.id, ci.product_id, p.name, COALESCE(p.sale_price, p.price),
 			(SELECT pi.url FROM product_images pi
 			 WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1),
 			ci.quantity, p.stock_quantity

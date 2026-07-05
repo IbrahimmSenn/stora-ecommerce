@@ -11,6 +11,8 @@ var (
 	ErrNoOwner           = errors.New("checkout requires a logged-in user or a guest session")
 	ErrInvalidShipping   = errors.New("invalid shipping method")
 	ErrRefundUnavailable = errors.New("refund processor is not configured")
+	ErrInvalidStatus     = errors.New("invalid shipping status")
+	ErrNotRefundable     = errors.New("order cannot be refunded in its current status")
 
 	// Address verification.
 	// ErrAddressNotVerifiable: the geocoder returned no match for the address.

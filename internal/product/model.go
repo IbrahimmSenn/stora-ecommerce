@@ -13,6 +13,7 @@ type Product struct {
 	Name           string     `json:"name"`
 	Description    *string    `json:"description,omitempty"`
 	Price          int64      `json:"price"` // cents
+	SalePrice      *int64     `json:"sale_price,omitempty"` // cents; nil when not on sale
 	StockQuantity  int        `json:"stock_quantity"`
 	CategoryID     *uuid.UUID `json:"category_id,omitempty"`
 	BrandID        *uuid.UUID `json:"brand_id,omitempty"`
@@ -37,23 +38,27 @@ type ProductDetail struct {
 
 // ProductListItem is the compact version returned in search/list results.
 type ProductListItem struct {
-	ID            uuid.UUID  `json:"id"`
-	Name          string     `json:"name"`
-	Price         int64      `json:"price"`
-	StockQuantity int        `json:"stock_quantity"`
-	CategoryName  *string    `json:"category_name,omitempty"`
-	BrandName     *string    `json:"brand_name,omitempty"`
-	AvgRating     float64    `json:"avg_rating"`
-	ReviewCount   int        `json:"review_count"`
-	PrimaryImage  *string    `json:"primary_image,omitempty"`
-	Relevance     *float64   `json:"relevance,omitempty"`
+	ID            uuid.UUID `json:"id"`
+	Name          string    `json:"name"`
+	Price         int64     `json:"price"`
+	SalePrice     *int64    `json:"sale_price,omitempty"`
+	StockQuantity int       `json:"stock_quantity"`
+	CategoryName  *string   `json:"category_name,omitempty"`
+	BrandName     *string   `json:"brand_name,omitempty"`
+	AvgRating     float64   `json:"avg_rating"`
+	ReviewCount   int       `json:"review_count"`
+	PrimaryImage  *string   `json:"primary_image,omitempty"`
+	Relevance     *float64  `json:"relevance,omitempty"`
 }
 
 type ProductImage struct {
-	ID        uuid.UUID `json:"id"`
-	ProductID uuid.UUID `json:"product_id"`
-	URL       string    `json:"url"`
-	IsPrimary bool      `json:"is_primary"`
+	ID           uuid.UUID `json:"id"`
+	ProductID    uuid.UUID `json:"product_id"`
+	URL          string    `json:"url"`
+	ThumbnailURL *string   `json:"thumbnail_url,omitempty"`
+	CardURL      *string   `json:"card_url,omitempty"`
+	FullURL      *string   `json:"full_url,omitempty"`
+	IsPrimary    bool      `json:"is_primary"`
 }
 
 // --- Request types ---
@@ -62,6 +67,7 @@ type CreateProductRequest struct {
 	Name          string   `json:"name" validate:"required,min=1,max=255"`
 	Description   *string  `json:"description,omitempty"`
 	Price         int64    `json:"price" validate:"gte=0"`
+	SalePrice     *int64   `json:"sale_price,omitempty" validate:"omitempty,gte=0"`
 	StockQuantity int      `json:"stock_quantity" validate:"gte=0"`
 	CategoryID    *string  `json:"category_id,omitempty"`
 	BrandID       *string  `json:"brand_id,omitempty"`
@@ -73,6 +79,8 @@ type UpdateProductRequest struct {
 	Name          *string  `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
 	Description   *string  `json:"description,omitempty"`
 	Price         *int64   `json:"price,omitempty" validate:"omitempty,gte=0"`
+	SalePrice     *int64   `json:"sale_price,omitempty" validate:"omitempty,gte=0"`
+	ClearSalePrice bool    `json:"clear_sale_price,omitempty"`
 	StockQuantity *int     `json:"stock_quantity,omitempty" validate:"omitempty,gte=0"`
 	CategoryID    *string  `json:"category_id,omitempty"`
 	BrandID       *string  `json:"brand_id,omitempty"`
@@ -85,6 +93,20 @@ type AddImageRequest struct {
 	IsPrimary bool   `json:"is_primary"`
 }
 
+// BulkItemError reports why a single row in a bulk upload failed.
+type BulkItemError struct {
+	Index int    `json:"index"`
+	Name  string `json:"name,omitempty"`
+	Error string `json:"error"`
+}
+
+// BulkResult summarises a bulk product upload (JSON or CSV).
+type BulkResult struct {
+	Created int             `json:"created"`
+	Failed  int             `json:"failed"`
+	Errors  []BulkItemError `json:"errors"`
+}
+
 // SearchParams holds all faceted search and pagination parameters.
 type SearchParams struct {
 	Query      string  // free-text search
@@ -93,7 +115,8 @@ type SearchParams struct {
 	MinPrice   *int64  // filter by minimum price (cents)
 	MaxPrice   *int64  // filter by maximum price (cents)
 	MinRating  *int    // filter by minimum average rating
-	SortBy     string  // "relevance", "price_asc", "price_desc", "rating"
+	OnSale     bool    // when true, only products with a sale_price
+	SortBy     string  // "relevance", "price_asc", "price_desc", "rating", "discount"
 	Page       int
 	PageSize   int
 }

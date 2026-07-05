@@ -316,6 +316,9 @@ func (noopProductRepo) Delete(context.Context, string) error { return nil }
 func (noopProductRepo) AddImage(context.Context, string, string, bool) (*product.ProductImage, error) {
 	return nil, nil
 }
+func (noopProductRepo) AddImageWithVariants(context.Context, string, string, string, string, string, bool) (*product.ProductImage, error) {
+	return nil, nil
+}
 func (noopProductRepo) DeleteImage(context.Context, string, string) error { return nil }
 func (noopProductRepo) GetImages(context.Context, string) ([]product.ProductImage, error) {
 	return nil, nil

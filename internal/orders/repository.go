@@ -44,6 +44,7 @@ type Repository interface {
 	GetLatestUserShipping(ctx context.Context, userID uuid.UUID) (*orderRow, *addressRow, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
 	ListByGuest(ctx context.Context, guestSessionID uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
+	ListAll(ctx context.Context, status string, from, to *time.Time, limit, offset int) ([]adminOrderRow, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	ItemsForRestock(ctx context.Context, orderID uuid.UUID) ([]OrderItem, error)
 }
@@ -207,6 +208,48 @@ func (r *postgresRepository) listSummaries(ctx context.Context, ownerCol string,
 	return out, nil
 }
 
+// ListAll returns every order (any owner) for the admin table, newest first,
+// with the encrypted email and a guest flag. Paginated.
+func (r *postgresRepository) ListAll(ctx context.Context, status string, from, to *time.Time, limit, offset int) ([]adminOrderRow, int, error) {
+	var statusArg any
+	if status != "" {
+		statusArg = status
+	}
+
+	where := `WHERE ($1::text IS NULL OR o.status = $1)
+		AND ($2::timestamptz IS NULL OR o.created_at >= $2)
+		AND ($3::timestamptz IS NULL OR o.created_at <= $3)`
+
+	var total int
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM orders o `+where, statusArg, from, to).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count orders: %w", err)
+	}
+
+	q := `SELECT o.id, o.order_number, o.status, o.total_cents,
+			(SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS item_count,
+			o.created_at, o.email_encrypted, (o.user_id IS NULL) AS is_guest
+		 FROM orders o ` + where + `
+		 ORDER BY o.created_at DESC
+		 LIMIT $4 OFFSET $5`
+
+	rows, err := r.db.Query(ctx, q, statusArg, from, to, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list all orders: %w", err)
+	}
+	defer rows.Close()
+
+	out := []adminOrderRow{}
+	for rows.Next() {
+		var a adminOrderRow
+		if err := rows.Scan(&a.ID, &a.OrderNumber, &a.Status, &a.TotalCents,
+			&a.ItemCount, &a.CreatedAt, &a.EmailEnc, &a.IsGuest); err != nil {
+			return nil, 0, fmt.Errorf("scan admin order: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, total, nil
+}
+
 func (r *postgresRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	tag, err := r.db.Exec(ctx, `UPDATE orders SET status = $2 WHERE id = $1`, id, status)
 	if err != nil {
@@ -251,7 +294,7 @@ type pgTx struct {
 func (t *pgTx) LockProductForUpdate(ctx context.Context, productID uuid.UUID) (*LockedProduct, error) {
 	var p LockedProduct
 	err := t.tx.QueryRow(ctx,
-		`SELECT id, name, price, stock_quantity FROM products WHERE id = $1 FOR UPDATE`,
+		`SELECT id, name, COALESCE(sale_price, price), stock_quantity FROM products WHERE id = $1 FOR UPDATE`,
 		productID,
 	).Scan(&p.ID, &p.Name, &p.Price, &p.Stock)
 	if err != nil {

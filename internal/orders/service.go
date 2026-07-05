@@ -41,6 +41,12 @@ type Service interface {
 	LoadByID(ctx context.Context, id uuid.UUID) (*OrderResponse, error)
 	MarkPaid(ctx context.Context, id uuid.UUID) error
 	MarkPaymentFailed(ctx context.Context, id uuid.UUID) error
+
+	// Admin entry points (no owner check; guarded by RBAC at the route layer).
+	AdminList(ctx context.Context, status string, from, to *time.Time, page, pageSize int) (*AdminOrderList, error)
+	AdminGet(ctx context.Context, id uuid.UUID) (*OrderResponse, error)
+	AdminUpdateStatus(ctx context.Context, id uuid.UUID, status string) (*OrderResponse, error)
+	AdminRefund(ctx context.Context, id uuid.UUID) (*OrderResponse, error)
 }
 
 // Refunder is the slice of the payments service the orders service uses
@@ -612,4 +618,3 @@ func (a CheckoutAddressRequest) toShippingAddress() ShippingAddress {
 		Country:       a.Country,
 	}
 }
-

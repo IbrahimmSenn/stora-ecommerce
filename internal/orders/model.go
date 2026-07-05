@@ -59,9 +59,9 @@ type ShippingAddress struct {
 }
 
 type OrderResponse struct {
-	Order   Order            `json:"order"`
-	Items   []OrderItem      `json:"items"`
-	Address ShippingAddress  `json:"address"`
+	Order   Order           `json:"order"`
+	Items   []OrderItem     `json:"items"`
+	Address ShippingAddress `json:"address"`
 }
 
 type OrderSummary struct {
@@ -71,6 +71,30 @@ type OrderSummary struct {
 	TotalCents  int64     `json:"total_cents"`
 	ItemCount   int       `json:"item_count"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// AdminOrderSummary is an order row for the admin orders table. It adds the
+// (decrypted) customer email and a guest flag on top of the customer summary.
+type AdminOrderSummary struct {
+	OrderSummary
+	Email   string `json:"email"`
+	IsGuest bool   `json:"is_guest"`
+}
+
+// AdminOrderList wraps the admin orders table with pagination metadata.
+type AdminOrderList struct {
+	Orders   []AdminOrderSummary `json:"orders"`
+	Total    int                 `json:"total"`
+	Page     int                 `json:"page"`
+	PageSize int                 `json:"page_size"`
+}
+
+// adminOrderRow is the raw row read by the admin list query, with the email
+// still encrypted; the service decrypts it into AdminOrderSummary.
+type adminOrderRow struct {
+	OrderSummary
+	EmailEnc []byte
+	IsGuest  bool
 }
 
 // PrefillResponse is what GET /api/v1/checkout/prefill returns for logged-in

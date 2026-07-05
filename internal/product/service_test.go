@@ -102,6 +102,10 @@ func (s *stubRepo) AddImage(_ context.Context, _ string, _ string, _ bool) (*Pro
 	return &ProductImage{}, nil
 }
 
+func (s *stubRepo) AddImageWithVariants(_ context.Context, _, url, _, _, _ string, _ bool) (*ProductImage, error) {
+	return &ProductImage{URL: url}, nil
+}
+
 func (s *stubRepo) DeleteImage(_ context.Context, _ string, _ string) error {
 	return ErrImageNotFound
 }
@@ -120,6 +124,22 @@ func (s *stubRepo) Candidates(_ context.Context, _ []string, _ int) ([]Candidate
 
 func (s *stubRepo) CategoryBrandFor(_ context.Context, _ []string) (map[uuid.UUID]CategoryBrand, error) {
 	return map[uuid.UUID]CategoryBrand{}, nil
+}
+
+func TestBulkCreate_CountsCreatedAndFailed(t *testing.T) {
+	svc := NewService(&stubRepo{})
+
+	reqs := []CreateProductRequest{
+		{Name: "Valid One", Price: 1000, StockQuantity: 5},
+		{Name: "", Price: 500}, // invalid: missing name
+		{Name: "Valid Two", Price: 2000, StockQuantity: 1},
+	}
+	res := svc.BulkCreate(context.Background(), reqs)
+
+	assert.Equal(t, 2, res.Created)
+	assert.Equal(t, 1, res.Failed)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t, 1, res.Errors[0].Index)
 }
 
 func intPtr(i int) *int { return &i }

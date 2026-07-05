@@ -2,10 +2,14 @@
 package product
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -13,6 +17,7 @@ import (
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/imageproc"
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 )
@@ -53,6 +58,9 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		SortBy: q.Get("sort"),
 	}
 
+	if q.Get("on_sale") == "true" {
+		params.OnSale = true
+	}
 	if v := q.Get("category_id"); v != "" {
 		params.CategoryID = &v
 	}
@@ -145,10 +153,130 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
 			return
 		}
+		if errors.Is(err, ErrInvalidSalePrice) {
+			response.Error(w, http.StatusBadRequest, ErrInvalidSalePrice.Error())
+			return
+		}
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	response.JSON(w, http.StatusCreated, p)
+}
+
+// BulkUpload handles POST /api/v1/admin/products/bulk. It accepts either a JSON
+// array of products (Content-Type: application/json) or a CSV file
+// (Content-Type: text/csv). Rows are created individually; per-row failures are
+// returned alongside the success count rather than failing the whole batch.
+func (h *Handler) BulkUpload(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	ct := r.Header.Get("Content-Type")
+	var reqs []CreateProductRequest
+	var err error
+
+	switch {
+	case strings.HasPrefix(ct, "text/csv"), strings.HasPrefix(ct, "application/csv"):
+		reqs, err = parseProductCSV(r.Body)
+	default:
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		err = dec.Decode(&reqs)
+	}
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "could not parse upload: "+err.Error())
+		return
+	}
+	if len(reqs) == 0 {
+		response.Error(w, http.StatusBadRequest, "no products found in upload")
+		return
+	}
+	if len(reqs) > 1000 {
+		response.Error(w, http.StatusRequestEntityTooLarge, "too many rows (max 1000 per upload)")
+		return
+	}
+
+	result := h.service.BulkCreate(r.Context(), reqs)
+	status := http.StatusCreated
+	if result.Created == 0 {
+		status = http.StatusUnprocessableEntity
+	}
+	response.JSON(w, status, result)
+}
+
+// parseProductCSV reads a header row then maps each subsequent row to a
+// CreateProductRequest. Recognised columns: name, description, price,
+// stock_quantity, category_id, brand_id, weight_g, dimensions_cm. Unknown
+// columns are ignored; name and price are the only practically required fields.
+func parseProductCSV(r io.Reader) ([]CreateProductRequest, error) {
+	cr := csv.NewReader(r)
+	cr.TrimLeadingSpace = true
+	cr.FieldsPerRecord = -1
+
+	header, err := cr.Read()
+	if err != nil {
+		return nil, fmt.Errorf("read header: %w", err)
+	}
+	col := make(map[string]int, len(header))
+	for i, h := range header {
+		col[strings.ToLower(strings.TrimSpace(h))] = i
+	}
+
+	get := func(rec []string, name string) string {
+		if i, ok := col[name]; ok && i < len(rec) {
+			return strings.TrimSpace(rec[i])
+		}
+		return ""
+	}
+
+	var out []CreateProductRequest
+	line := 1
+	for {
+		rec, err := cr.Read()
+		if err == io.EOF {
+			break
+		}
+		line++
+		if err != nil {
+			return nil, fmt.Errorf("row %d: %w", line, err)
+		}
+
+		req := CreateProductRequest{Name: get(rec, "name")}
+		if v := get(rec, "description"); v != "" {
+			req.Description = &v
+		}
+		if v := get(rec, "price"); v != "" {
+			n, perr := strconv.ParseInt(v, 10, 64)
+			if perr != nil {
+				return nil, fmt.Errorf("row %d: price must be an integer (cents)", line)
+			}
+			req.Price = n
+		}
+		if v := get(rec, "stock_quantity"); v != "" {
+			n, perr := strconv.Atoi(v)
+			if perr != nil {
+				return nil, fmt.Errorf("row %d: stock_quantity must be an integer", line)
+			}
+			req.StockQuantity = n
+		}
+		if v := get(rec, "category_id"); v != "" {
+			req.CategoryID = &v
+		}
+		if v := get(rec, "brand_id"); v != "" {
+			req.BrandID = &v
+		}
+		if v := get(rec, "weight_g"); v != "" {
+			if n, perr := strconv.Atoi(v); perr == nil {
+				req.WeightG = &n
+			}
+		}
+		if v := get(rec, "dimensions_cm"); v != "" {
+			if f, perr := strconv.ParseFloat(v, 64); perr == nil {
+				req.DimensionsCm = &f
+			}
+		}
+		out = append(out, req)
+	}
+	return out, nil
 }
 
 // Update handles PUT /api/v1/admin/products/{id}
@@ -170,6 +298,8 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.As(err, &ve):
 			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+		case errors.Is(err, ErrInvalidSalePrice):
+			response.Error(w, http.StatusBadRequest, ErrInvalidSalePrice.Error())
 		case errors.Is(err, ErrProductNotFound):
 			response.Error(w, http.StatusNotFound, "product not found")
 		default:
@@ -216,6 +346,52 @@ func (h *Handler) AddImage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response.Error(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	response.JSON(w, http.StatusCreated, img)
+}
+
+// UploadImage handles POST /api/v1/admin/products/{id}/images/upload.
+// Multipart form: `image` (file), optional `is_primary` ("true"/"1"). The file
+// is decoded and re-sized into thumbnail/card/full variants.
+func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
+	productID := chi.URLParam(r, "id")
+
+	// Cap the in-memory + total body size before touching the file.
+	const maxUpload = 12 << 20 // 12 MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	if err := r.ParseMultipartForm(maxUpload); err != nil {
+		response.Error(w, http.StatusRequestEntityTooLarge, "image is too large (max 12 MB)")
+		return
+	}
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "no image file provided (field 'image')")
+		return
+	}
+	defer file.Close()
+	_ = header
+
+	isPrimary := r.FormValue("is_primary") == "true" || r.FormValue("is_primary") == "1"
+
+	img, err := h.service.UploadImage(r.Context(), productID, file, isPrimary)
+	if err != nil {
+		switch {
+		case errors.Is(err, imageproc.ErrNotAnImage):
+			response.Error(w, http.StatusBadRequest, "that file is not a valid image (use JPEG or PNG)")
+		case errors.Is(err, ErrUploadsDisabled):
+			response.Error(w, http.StatusServiceUnavailable, "image uploads are not configured on this server")
+		case errors.Is(err, ErrProductNotFound):
+			response.Error(w, http.StatusNotFound, "product not found")
+		default:
+			response.Error(w, http.StatusInternalServerError, "could not process image")
+		}
 		return
 	}
 	response.JSON(w, http.StatusCreated, img)
