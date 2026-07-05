@@ -13,5 +13,6 @@ web/dist
 
 # Internal design / AI-tooling docs — kept locally, not for submission
 CLAUDE-sprint-addendum.md
+REQUIREMENTS.md
 design_handoff_stora_design_system/
 docs/design-system/

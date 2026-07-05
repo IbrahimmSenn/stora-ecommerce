@@ -7,13 +7,28 @@ A full-stack e-commerce platform built with Go, PostgreSQL, RabbitMQ, and Docker
 Prerequisite: **Docker** + **Docker Compose**. That's it.
 
 ```bash
-git clone https://gitea.kood.tech/ibrahimsen/i-love-shopping.git
-cd i-love-shopping
+git clone https://gitea.kood.tech/ibrahimsen/i-love-shopping3.git
+cd i-love-shopping3
 cp .env.example .env       # fill in Stripe + ENCRYPTION_KEY, others optional
 make up                    # boots db, runs migrations, seeds, starts API
 ```
 
 Open [http://localhost:8080](http://localhost:8080). To exercise Stripe end-to-end, run `stripe listen --forward-to http://localhost:8080/api/v1/webhooks/stripe` in a second terminal and paste the printed `whsec_...` into `.env`.
+
+### Handing this to a reviewer
+
+If I've sent you the `.env` file directly, skip `cp .env.example .env` — drop my
+`.env` into the repo root instead. It has the encryption key and Stripe **test**
+keys already filled in, so:
+
+1. `make up`, then open [http://localhost:8080](http://localhost:8080). The
+   storefront, admin (after 2FA setup), reviews, cart, and checkout all work as-is.
+2. **For live card payments only**, the Stripe webhook needs one per-machine step:
+   run `stripe listen --forward-to http://localhost:8080/api/v1/webhooks/stripe`,
+   copy the `whsec_...` it prints over `STRIPE_WEBHOOK_SECRET` in `.env`, and make
+   sure `stripe login` is pointed at the same Stripe account the keys belong to
+   (I'll share that login). Without this, everything works except the final
+   card → paid → confirmation email step, because the webhook is signature-verified.
 
 ### Bundled services
 
