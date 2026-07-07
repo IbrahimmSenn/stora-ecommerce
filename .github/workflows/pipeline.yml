@@ -34,7 +34,7 @@ jobs:
       - name: Unit + integration tests (JUnit report)
         run: |
           mkdir -p reports
-          go run gotest.tools/gotestsum@v1.12.0 \
+          go run gotest.tools/gotestsum@v1.13.0 \
             --junitfile reports/backend-tests.xml \
             --format testname -- -count=1 ./...
       - uses: actions/upload-artifact@v4
