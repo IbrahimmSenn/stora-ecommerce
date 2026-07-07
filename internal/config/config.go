@@ -250,6 +250,13 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// Publicly-known placeholder values shipped in .env.example. Booting production
+// with either would silently run with secrets anyone can read from the repo.
+const (
+	placeholderJWTSecret = "replace-with-a-random-string-at-least-32-chars"
+	devEncryptionKey     = "0000000000000000000000000000000000000000000000000000000000000000"
+)
+
 // validateForProduction fails fast on insecure settings when APP_ENV=production.
 // In any other environment these are warnings at most, so local dev is never
 // blocked. corsExplicit is the raw CORS_ORIGINS value (empty = using defaults).
@@ -262,6 +269,12 @@ func (c *Config) validateForProduction(corsExplicit string) error {
 	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 chars in production (got %d)", len(c.JWTSecret))
+	}
+	if c.JWTSecret == placeholderJWTSecret {
+		return fmt.Errorf("JWT_SECRET is still the .env.example placeholder — generate one with: openssl rand -hex 32")
+	}
+	if c.EncryptionKey == devEncryptionKey {
+		return fmt.Errorf("ENCRYPTION_KEY is still the all-zero dev key from .env.example — generate one with: openssl rand -hex 32")
 	}
 	if !strings.HasPrefix(c.BaseURL, "https://") {
 		return fmt.Errorf("BASE_URL must be https:// in production")
