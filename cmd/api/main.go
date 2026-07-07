@@ -370,9 +370,15 @@ func main() {
 	// NotFound block at the bottom of the router.
 	webDist := "web/dist"
 
-	// Expose reCAPTCHA site key to frontend (public, non-secret)
+	// Expose reCAPTCHA site key to frontend (public, non-secret). When captcha
+	// is skipped, advertise no key so the frontend omits the token instead of
+	// loading Google's script (which the CSP blocks).
 	r.Get("/api/v1/config/recaptcha", func(w http.ResponseWriter, r *http.Request) {
-		response.JSON(w, http.StatusOK, map[string]string{"site_key": cfg.RecaptchaSiteKey})
+		siteKey := cfg.RecaptchaSiteKey
+		if cfg.SkipCaptcha {
+			siteKey = ""
+		}
+		response.JSON(w, http.StatusOK, map[string]string{"site_key": siteKey})
 	})
 
 	// Expose Stripe publishable key to frontend (public, non-secret)
