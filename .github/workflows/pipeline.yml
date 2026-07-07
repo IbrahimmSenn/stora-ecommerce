@@ -1,0 +1,260 @@
+# CI/CD pipeline — four stages in sequence (see docs/cicd.md):
+#   1. Build & Test        backend-test, frontend-test, docker-build
+#   2. Security Scan       code + dependencies, secrets (full git history), image
+#   3. Database Migration  all migrations up from zero, newest one down+up
+#   4. Core Delivery       deploy to an ephemeral environment, smoke-test, publish to GHCR
+name: pipeline
+
+on:
+  push:
+    branches: [main, integrator]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- Stage 1: Build & Test ----------
+  backend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      - name: Unit + integration tests (JUnit report)
+        run: |
+          mkdir -p reports
+          go run gotest.tools/gotestsum@v1.12.0 \
+            --junitfile reports/backend-tests.xml \
+            --format testname -- -count=1 ./...
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-report
+          path: reports/
+
+  frontend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests (JUnit report)
+        run: |
+          mkdir -p reports
+          npx vitest run --reporter=default --reporter=junit --outputFile=reports/frontend-tests.xml
+      - name: Type-check + production build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-test-report
+          path: web/reports/
+
+  docker-build:
+    # The deployable artifact. --target test first proves the Go suite passes
+    # inside the container environment, then the runtime image is built and
+    # saved so later stages scan and deploy the exact same bytes.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend-test, frontend-test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run backend tests inside Docker
+        run: docker build --target test .
+      - name: Build runtime image
+        run: docker build -t app:${{ github.sha }} .
+      - name: Save image artifact
+        run: docker save app:${{ github.sha }} | gzip > image.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar.gz
+          retention-days: 7
+
+  # ---------- Stage 2: Security & Dependency Scan ----------
+  security-code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend-test, frontend-test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: SAST — gosec (full report, artifact)
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
+          mkdir -p reports
+          gosec -quiet -exclude-dir=web -fmt json -out reports/gosec.json -no-fail ./...
+      - name: SAST — gosec (gate on HIGH severity)
+        run: gosec -quiet -exclude-dir=web -severity high -confidence medium ./...
+      - name: Dependency vulnerabilities — govulncheck (reachable code paths)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Dependency vulnerabilities — npm audit (gate on high)
+        working-directory: web
+        run: |
+          npm ci
+          npm audit --audit-level=high
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: reports/
+
+  security-secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend-test, frontend-test]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so previously-committed secrets are found
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Secrets scan — gitleaks (entire git history)
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
+          gitleaks git . --redact --verbose
+
+  security-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: docker-build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+      - name: Load image
+        run: docker load < image.tar.gz
+      - name: Container scan — trivy (gate on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: app:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  # ---------- Stage 3: Database Migration ----------
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [security-code, security-secrets, security-image]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DB_URL: postgres://ci:ci@localhost:5432/ci?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply every migration from an empty database
+        run: |
+          docker run --rm --network host -v "$PWD/migrations:/migrations" \
+            migrate/migrate:v4.17.0 -path /migrations -database "$DB_URL" up
+      - name: Prove the newest migration is reversible (down 1, up 1)
+        run: |
+          docker run --rm --network host -v "$PWD/migrations:/migrations" \
+            migrate/migrate:v4.17.0 -path /migrations -database "$DB_URL" down 1
+          docker run --rm --network host -v "$PWD/migrations:/migrations" \
+            migrate/migrate:v4.17.0 -path /migrations -database "$DB_URL" up
+      - name: Seed data applies cleanly
+        run: |
+          docker run --rm --network host -v "$PWD/migrations:/migrations:ro" \
+            -e PGPASSWORD=ci postgres:16-alpine \
+            psql -h localhost -U ci -d ci -q -f /migrations/seed.sql
+
+  # ---------- Stage 4: Core Delivery ----------
+  delivery:
+    # Deploys the built image into a full docker-compose environment on the
+    # runner, backs up + migrates the database, validates the critical user
+    # flows, then publishes the artifact to GHCR for real deploys/rollbacks
+    # (scripts/deploy.sh + scripts/rollback.sh on the target host).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: migrations
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+      - name: Load image
+        run: docker load < image.tar.gz
+      - name: Inject environment (secrets generated per run, never committed)
+        run: |
+          cat > .env <<EOF
+          JWT_SECRET=$(openssl rand -hex 32)
+          ENCRYPTION_KEY=$(openssl rand -hex 32)
+          STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY || 'sk_test_x' }}
+          STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY || 'pk_test_x' }}
+          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET || 'whsec_x' }}
+          BASE_URL=http://localhost:8080
+          APP_ENV=development
+          EOF
+      - name: Deploy (backup -> migrate -> start -> smoke-test)
+        run: scripts/deploy.sh app:${{ github.sha }}
+      - name: Collect service logs on failure
+        if: failure()
+        run: docker compose logs --tail 200 api db migrate seed
+      - name: Tear down ephemeral environment
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.deploy.yml down -v || true
+        env:
+          API_IMAGE: app:${{ github.sha }}
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish versioned artifact (rollback target)
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker tag app:${{ github.sha }} "$image:${{ github.sha }}"
+          docker push "$image:${{ github.sha }}"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag app:${{ github.sha }} "$image:latest"
+            docker push "$image:latest"
+          fi

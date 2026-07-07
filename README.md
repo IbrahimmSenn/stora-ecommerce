@@ -1,5 +1,7 @@
 # I Love Shopping
 
+[![pipeline](https://github.com/IbrahimmSenn/iloveshopping/actions/workflows/pipeline.yml/badge.svg)](https://github.com/IbrahimmSenn/iloveshopping/actions/workflows/pipeline.yml)
+
 A full-stack e-commerce platform built with Go, PostgreSQL, RabbitMQ, and Docker. Covers the full commerce loop — catalog browsing, guest and persistent carts, single-page checkout, Stripe sandbox payments, webhook-driven order state, async email over a message queue, order history, and the cancellation + refund workflow — with the order PII (contact + shipping address) encrypted at rest. Frontend is a React 19 + TypeScript storefront with a custom design system (OKLCH tokens, variable fonts, light/dark toggle, signature cart transition).
 
 ## Quick start
@@ -307,6 +309,22 @@ Open [http://localhost:5173](http://localhost:5173). The Vite server proxies `/a
 ### Concurrent payment guard
 
 With one unit in stock, open two sessions and check the same product out in parallel — the second checkout fails with `409 stock or price changed while you were checking out`. `SELECT ... FOR UPDATE` on every cart line serialises the stock decrement.
+
+## CI/CD
+
+Every push runs a four-stage pipeline (GitHub Actions): **build & test** (Go +
+frontend suites with JUnit reports, plus the Go suite re-run inside Docker) →
+**security scan** (gosec SAST, govulncheck + npm audit dependency scanning,
+gitleaks over the full git history, trivy on the built image) → **database
+migration validation** (all migrations up from zero, newest one down/up,
+idempotent seed) → **core delivery** (deploy into an ephemeral compose
+environment, backup-then-migrate, smoke-test the critical user flows, publish
+the image to GHCR as a versioned rollback target).
+
+Deploys and rollbacks on any Docker host use the same scripts the pipeline
+runs: `scripts/deploy.sh <image>` and `scripts/rollback.sh <image> [backup.sql]`.
+Full documentation, gate policy, and the failure/rollback demo script:
+[docs/cicd.md](docs/cicd.md).
 
 ## Environment
 

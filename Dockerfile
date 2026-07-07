@@ -29,6 +29,13 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o /api ./cmd/api
 
+# --- Backend test stage (not part of the runtime image) ---
+# Built explicitly by CI with `docker build --target test .` so the suite runs
+# in the same environment the binary is compiled in.
+FROM builder AS test
+
+RUN go vet ./... && go test ./... -count=1
+
 # --- Run stage ---
 FROM alpine:3.20
 

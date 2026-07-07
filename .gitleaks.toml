@@ -1,0 +1,17 @@
+[extend]
+useDefault = true
+
+# False positives only: documentation examples and test fixtures. Anything not
+# matched here fails the pipeline. Historical one-off leaks (since rotated) are
+# pinned by fingerprint in .gitleaksignore instead.
+[allowlist]
+description = "doc examples and test-only dummy keys"
+regexes = [
+  # truncated example tokens in README API reference
+  '''eyJhbGciOiJIUzI1NiIs\.\.\.''',
+  # the public jwt.io demo token used as a tamper fixture in auth tests
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIi''',
+  # throwaway AES keys used in unit tests
+  '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef''',
+  '''8c6f2a1d4e9b7c3f0a5d8e2b6c9f1a4d7e0b3c6f9a2d5e8b1c4f7a0d3e6b9c2f''',
+]

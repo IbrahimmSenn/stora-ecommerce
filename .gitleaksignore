@@ -1,0 +1,8 @@
+# Historical leak, acknowledged: commit d9b0751 briefly committed the Google
+# OAuth client secret and reCAPTCHA keys inside docker-compose.yml. The values
+# were removed from the file and MUST be rotated in the Google/reCAPTCHA
+# consoles — rotation, not history rewrite, is the remediation. Tracked here by
+# fingerprint so the pipeline stays green while still catching new leaks.
+d9b0751600168f532aec1b11a95c6c7f9d1e5014:docker-compose.yml:generic-api-key:63
+d9b0751600168f532aec1b11a95c6c7f9d1e5014:docker-compose.yml:generic-api-key:64
+d9b0751600168f532aec1b11a95c6c7f9d1e5014:docker-compose.yml:generic-api-key:67
