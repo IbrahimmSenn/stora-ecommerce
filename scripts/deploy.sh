@@ -43,4 +43,6 @@ if ! scripts/smoke.sh; then
 fi
 
 echo "deploy: $IMAGE is live"
-[ -n "$backup" ] && echo "deploy: pre-migration backup at $backup (kept for rollback)"
+if [ -n "$backup" ]; then
+  echo "deploy: pre-migration backup at $backup (kept for rollback)"
+fi
