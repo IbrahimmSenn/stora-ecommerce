@@ -159,13 +159,15 @@ export function PaymentPage() {
               </dd>
             </div>
           </dl>
-          <p className="mt-6 text-xs text-ink-faint leading-relaxed">
-            Stripe test card{' '}
-            <span className="tnum text-ink-soft">4242 4242 4242 4242</span>, any
-            future date, any CVC.{' '}
-            <span className="tnum text-ink-soft">4000 0000 0000 9995</span>{' '}
-            simulates an insufficient-funds decline.
-          </p>
+          {import.meta.env.DEV && (
+            <p className="mt-6 text-xs text-ink-faint leading-relaxed">
+              Stripe test card{' '}
+              <span className="tnum text-ink-soft">4242 4242 4242 4242</span>, any
+              future date, any CVC.{' '}
+              <span className="tnum text-ink-soft">4000 0000 0000 9995</span>{' '}
+              simulates an insufficient-funds decline.
+            </p>
+          )}
         </aside>
       </div>
     </Page>

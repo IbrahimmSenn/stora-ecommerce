@@ -10,9 +10,7 @@ const team = [
 ]
 
 const socials = [
-  { label: 'Instagram', href: 'https://instagram.com' },
-  { label: 'Bluesky', href: 'https://bsky.app' },
-  { label: 'GitHub', href: 'https://github.com' },
+  { label: 'GitHub', href: 'https://github.com/IbrahimmSenn/iloveshopping' },
 ]
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

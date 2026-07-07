@@ -592,13 +592,15 @@ function CheckoutInner({ deliveryOptions }: { deliveryOptions: DeliveryOption[] 
             <div className="bg-raised px-5 py-5 border border-rule-strong">
               <PaymentElement options={{ layout: 'tabs' }} />
             </div>
-            <p className="text-xs text-ink-faint mt-3 leading-relaxed">
-              Test card{' '}
-              <span className="tnum text-ink-soft">4242 4242 4242 4242</span>{' '}
-              succeeds.{' '}
-              <span className="tnum text-ink-soft">4000 0000 0000 9995</span>{' '}
-              simulates insufficient funds. Any future date, any CVC.
-            </p>
+            {import.meta.env.DEV && (
+              <p className="text-xs text-ink-faint mt-3 leading-relaxed">
+                Test card{' '}
+                <span className="tnum text-ink-soft">4242 4242 4242 4242</span>{' '}
+                succeeds.{' '}
+                <span className="tnum text-ink-soft">4000 0000 0000 9995</span>{' '}
+                simulates insufficient funds. Any future date, any CVC.
+              </p>
+            )}
           </Section>
 
           <button

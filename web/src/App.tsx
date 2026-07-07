@@ -27,6 +27,7 @@ import { AdminUsersPage } from './admin/AdminUsersPage'
 import { AdminReviewsPage } from './admin/AdminReviewsPage'
 import { AdminAuditPage } from './admin/AdminAuditPage'
 import { NotFoundPage } from './components/NotFoundPage'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { AboutPage } from './pages/AboutPage'
 import { ContactPage } from './pages/ContactPage'
 import { ScrollToTop } from './components/ScrollToTop'
@@ -42,6 +43,7 @@ function App() {
       </a>
       <Nav />
       <main id="main" tabIndex={-1} className="outline-none">
+      <ErrorBoundary>
       <Routes>
         <Route path="/" element={<ProductsPage />} />
         <Route path="/shop/:slug" element={<ProductsPage />} />
@@ -84,6 +86,7 @@ function App() {
 
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </ErrorBoundary>
       </main>
       <Footer />
       <ScrollToTop />
