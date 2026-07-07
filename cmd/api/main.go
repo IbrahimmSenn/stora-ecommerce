@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,6 +50,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/review"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/seed"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/seo"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/tlsutil"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
@@ -58,6 +60,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+
+	setupLogging(cfg.AppEnv)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -386,9 +390,55 @@ func main() {
 		response.JSON(w, http.StatusOK, map[string]string{"publishable_key": cfg.StripePublishableKey})
 	})
 
+	// Liveness: process is up. Kept dependency-free so restarts don't cascade.
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+
+	// Readiness: verifies the dependencies the app can't serve without.
+	// Used by the compose healthcheck and post-deploy validation.
+	r.Get("/ready", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		checks := map[string]string{}
+		healthy := true
+
+		if err := db.Ping(ctx); err != nil {
+			checks["database"] = "unreachable: " + err.Error()
+			healthy = false
+		} else {
+			checks["database"] = "ok"
+		}
+
+		if amqpConn.IsClosed() {
+			checks["rabbitmq"] = "connection closed"
+			healthy = false
+		} else {
+			checks["rabbitmq"] = "ok"
+		}
+
+		if rdb == nil {
+			checks["redis"] = "disabled"
+		} else if err := rdb.Ping(ctx).Err(); err != nil {
+			checks["redis"] = "unreachable: " + err.Error()
+			healthy = false
+		} else {
+			checks["redis"] = "ok"
+		}
+
+		status, code := "ok", http.StatusOK
+		if !healthy {
+			status, code = "degraded", http.StatusServiceUnavailable
+		}
+		response.JSON(w, code, map[string]any{"status": status, "checks": checks})
+	})
+
+	// Sitemap + robots for search engines. Registered explicitly so they win
+	// over the SPA fallback (and the static robots.txt copied from web/public).
+	seoHandler := seo.NewHandler(seo.NewService(seo.NewRepository(db), cfg.BaseURL), cfg.BaseURL)
+	r.Get("/sitemap.xml", seoHandler.Sitemap)
+	r.Get("/robots.txt", seoHandler.Robots)
 
 	// Public contact/support form.
 	r.Post("/api/v1/contact", contactHandler.Submit)
@@ -666,6 +716,26 @@ func main() {
 // Directory paths and anything that would resolve outside root (via "..") are
 // rejected — http.ServeFile would already block traversal, but failing early
 // keeps the logic obvious.
+// setupLogging installs a slog default handler: JSON in production (for log
+// aggregators), human-readable text otherwise. Level comes from LOG_LEVEL
+// (debug|info|warn|error, default info). slog.SetDefault also reroutes the
+// stdlib log package, so existing log.Printf calls get level + timestamp
+// structure without touching every call site.
+func setupLogging(appEnv string) {
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(os.Getenv("LOG_LEVEL"))); err != nil {
+		level = slog.LevelInfo
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	var handler slog.Handler
+	if appEnv == "production" {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
+	slog.SetDefault(slog.New(handler))
+}
+
 func servedStatic(w http.ResponseWriter, req *http.Request, root string) bool {
 	path := req.URL.Path
 	if path == "" || path == "/" {

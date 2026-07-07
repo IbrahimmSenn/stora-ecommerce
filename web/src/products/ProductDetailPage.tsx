@@ -167,9 +167,44 @@ export function ProductDetailPage() {
     .trim()
     .slice(0, 157)
 
+  // Product structured data for search-engine rich results.
+  const productLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: product.name,
+    description: metaDesc,
+    ...(images[0] && { image: images.map((i) => i.full_url ?? i.url) }),
+    ...(product.brand_name && { brand: { '@type': 'Brand', name: product.brand_name } }),
+    ...(product.review_count > 0 && {
+      aggregateRating: {
+        '@type': 'AggregateRating',
+        ratingValue: product.avg_rating.toFixed(1),
+        reviewCount: product.review_count,
+      },
+    }),
+    offers: {
+      '@type': 'Offer',
+      priceCurrency: 'USD',
+      price: ((product.sale_price ?? product.price) / 100).toFixed(2),
+      availability: inStock
+        ? 'https://schema.org/InStock'
+        : 'https://schema.org/OutOfStock',
+      url: window.location.origin + `/product/${product.id}`,
+    },
+  }
+
   return (
     <Page>
-      <Seo title={product.name.slice(0, 50)} description={metaDesc} />
+      <Seo
+        title={product.name.slice(0, 50)}
+        description={metaDesc}
+        image={images[0]?.full_url ?? images[0]?.url ?? null}
+        ogType="product"
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(productLd) }}
+      />
       <nav aria-label="Breadcrumb" className="uc-tight text-[0.7rem] text-ink-faint mb-12 flex flex-wrap items-center gap-x-2">
         <Link to="/" className="hover:text-ink transition-colors">
           Shop
