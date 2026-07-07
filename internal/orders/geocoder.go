@@ -73,15 +73,17 @@ func (n *nominatimClient) VerifyAddress(ctx context.Context, addr CheckoutAddres
 	q.Set("postalcode", addr.PostalCode)
 	q.Set("country", addr.Country)
 
+	// Not SSRF: the host is operator config (NOMINATIM_BASE_URL); user input
+	// only lands in url-encoded query values and can't change the target.
 	endpoint := n.baseURL + "/search?" + q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil) // #nosec G704
 	if err != nil {
 		return fmt.Errorf("%w: build request: %v", ErrAddressVerificationUnavailable, err)
 	}
 	req.Header.Set("User-Agent", n.userAgent)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := n.httpClient.Do(req)
+	resp, err := n.httpClient.Do(req) // #nosec G704
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrAddressVerificationUnavailable, err)
 	}

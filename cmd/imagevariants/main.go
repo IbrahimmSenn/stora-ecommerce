@@ -72,16 +72,18 @@ func main() {
 
 	done, skipped := 0, 0
 	for _, j := range jobs {
+		// filepath.Base strips any directory components, so src stays inside
+		// sourceDir. Offline admin CLI, paths come from our own database.
 		base := filepath.Base(strings.TrimPrefix(j.url, "/products/"))
 		src := filepath.Join(sourceDir, base)
-		f, err := os.Open(src)
+		f, err := os.Open(src) // #nosec G703
 		if err != nil {
 			log.Printf("skip %s: %v", j.url, err)
 			skipped++
 			continue
 		}
 		v, err := proc.Process(strings.TrimSuffix(base, filepath.Ext(base)), f)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			log.Printf("skip %s: %v", j.url, err)
 			skipped++

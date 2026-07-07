@@ -70,8 +70,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("parse database url: %v", err)
 	}
-	poolCfg.MaxConns = int32(cfg.DBMaxConns)
-	poolCfg.MinConns = int32(cfg.DBMinConns)
+	poolCfg.MaxConns = int32(cfg.DBMaxConns) // #nosec G115 -- operator-set env value, small
+	poolCfg.MinConns = int32(cfg.DBMinConns) // #nosec G115 -- operator-set env value, small
 	poolCfg.MaxConnLifetime = cfg.DBMaxConnLifetime
 	poolCfg.MaxConnIdleTime = cfg.DBMaxConnIdleTime
 	poolCfg.HealthCheckPeriod = time.Minute
