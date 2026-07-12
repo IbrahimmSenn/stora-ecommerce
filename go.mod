@@ -2,7 +2,7 @@ module gitea.kood.tech/ibrahimsen/i-love-shopping
 
 go 1.25.0
 
-toolchain go1.25.11
+toolchain go1.25.12
 
 require (
 	github.com/disintegration/imaging v1.6.2
