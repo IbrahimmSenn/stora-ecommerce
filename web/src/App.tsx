@@ -32,6 +32,7 @@ import { AboutPage } from './pages/AboutPage'
 import { ContactPage } from './pages/ContactPage'
 import { ScrollToTop } from './components/ScrollToTop'
 import { DemoBanner } from './components/DemoBanner'
+import { AnnouncementBar } from './components/AnnouncementBar'
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
         Skip to content
       </a>
       <DemoBanner />
+      <AnnouncementBar />
       <Nav />
       <main id="main" tabIndex={-1} className="outline-none">
       <ErrorBoundary>

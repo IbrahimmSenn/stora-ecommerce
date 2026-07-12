@@ -32,7 +32,7 @@ func NewRepository(db *pgxpool.Pool) Repository {
 }
 
 func (r *postgresRepository) List(ctx context.Context) ([]Category, error) {
-	query := `SELECT id, name, slug, parent_id, created_at, updated_at FROM categories ORDER BY name`
+	query := `SELECT id, name, slug, parent_id, image_url, created_at, updated_at FROM categories ORDER BY name`
 	rows, err := r.db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("list categories: %w", err)
@@ -42,7 +42,7 @@ func (r *postgresRepository) List(ctx context.Context) ([]Category, error) {
 	var categories []Category
 	for rows.Next() {
 		var c Category
-		if err := rows.Scan(&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
 		categories = append(categories, c)
@@ -51,9 +51,9 @@ func (r *postgresRepository) List(ctx context.Context) ([]Category, error) {
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Category, error) {
-	query := `SELECT id, name, slug, parent_id, created_at, updated_at FROM categories WHERE id = $1`
+	query := `SELECT id, name, slug, parent_id, image_url, created_at, updated_at FROM categories WHERE id = $1`
 	var c Category
-	err := r.db.QueryRow(ctx, query, id).Scan(&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.CreatedAt, &c.UpdatedAt)
+	err := r.db.QueryRow(ctx, query, id).Scan(&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrCategoryNotFound
@@ -64,9 +64,9 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Category,
 }
 
 func (r *postgresRepository) GetBySlug(ctx context.Context, slug string) (*Category, error) {
-	query := `SELECT id, name, slug, parent_id, created_at, updated_at FROM categories WHERE slug = $1`
+	query := `SELECT id, name, slug, parent_id, image_url, created_at, updated_at FROM categories WHERE slug = $1`
 	var c Category
-	err := r.db.QueryRow(ctx, query, slug).Scan(&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.CreatedAt, &c.UpdatedAt)
+	err := r.db.QueryRow(ctx, query, slug).Scan(&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrCategoryNotFound
@@ -78,10 +78,10 @@ func (r *postgresRepository) GetBySlug(ctx context.Context, slug string) (*Categ
 
 func (r *postgresRepository) Create(ctx context.Context, name, slug string, parentID *uuid.UUID) (*Category, error) {
 	query := `INSERT INTO categories (name, slug, parent_id) VALUES ($1, $2, $3)
-		RETURNING id, name, slug, parent_id, created_at, updated_at`
+		RETURNING id, name, slug, parent_id, image_url, created_at, updated_at`
 	var c Category
 	err := r.db.QueryRow(ctx, query, name, slug, parentID).Scan(
-		&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -96,10 +96,10 @@ func (r *postgresRepository) Create(ctx context.Context, name, slug string, pare
 func (r *postgresRepository) Update(ctx context.Context, id, name, slug string, parentID *uuid.UUID) (*Category, error) {
 	query := `UPDATE categories SET name = $2, slug = $3, parent_id = $4, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, name, slug, parent_id, created_at, updated_at`
+		RETURNING id, name, slug, parent_id, image_url, created_at, updated_at`
 	var c Category
 	err := r.db.QueryRow(ctx, query, id, name, slug, parentID).Scan(
-		&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.Name, &c.Slug, &c.ParentID, &c.ImageURL, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

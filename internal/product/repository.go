@@ -135,6 +135,17 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 	case "discount":
 		// Biggest percentage off first; non-sale rows (NULL) sort last.
 		orderClause = "ORDER BY (p.price - p.sale_price)::numeric / NULLIF(p.price, 0) DESC NULLS LAST"
+	case "bestseller":
+		// Units sold across settled orders. Correlated subquery keeps the count
+		// query untouched; fine at catalog scale. A denormalized sales_count
+		// column is the scale-up path if this ever shows in query plans.
+		orderClause = `ORDER BY (
+			SELECT COALESCE(SUM(oi.quantity), 0)
+			FROM order_items oi
+			JOIN orders o ON o.id = oi.order_id
+			WHERE oi.product_id = p.id
+				AND o.status IN ('paid','processing','shipped','delivered')
+		) DESC, p.rating_count DESC, p.created_at DESC`
 	default: // "relevance" or empty
 		if hasQuery {
 			orderClause = "ORDER BY relevance DESC"
@@ -215,7 +226,10 @@ func (r *postgresRepository) Search(ctx context.Context, params SearchParams) (*
 
 func (r *postgresRepository) Suggest(ctx context.Context, query string, limit int) ([]Suggestion, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, name FROM products WHERE name ILIKE '%' || $1 || '%' ORDER BY name LIMIT $2`,
+		`SELECT p.id, p.name, p.price, p.sale_price,
+			(SELECT COALESCE(pi.thumbnail_url, pi.url) FROM product_images pi
+				WHERE pi.product_id = p.id AND pi.is_primary = true LIMIT 1)
+		FROM products p WHERE p.name ILIKE '%' || $1 || '%' ORDER BY p.name LIMIT $2`,
 		query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("suggest products: %w", err)
@@ -225,7 +239,7 @@ func (r *postgresRepository) Suggest(ctx context.Context, query string, limit in
 	var suggestions []Suggestion
 	for rows.Next() {
 		var s Suggestion
-		if err := rows.Scan(&s.ID, &s.Name); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Price, &s.SalePrice, &s.ImageURL); err != nil {
 			return nil, fmt.Errorf("scan suggestion: %w", err)
 		}
 		suggestions = append(suggestions, s)

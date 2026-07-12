@@ -26,4 +26,8 @@ export {
   LayoutGrid,
   List,
   SlidersHorizontal,
+  Truck,
+  RotateCcw,
+  ShieldCheck,
+  Headset,
 } from 'lucide-react'

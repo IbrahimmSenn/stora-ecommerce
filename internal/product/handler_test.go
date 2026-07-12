@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -211,6 +212,24 @@ func TestSearchEndpoint_QueryParams(t *testing.T) {
 	h.Search(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestSearchEndpoint_SortValues(t *testing.T) {
+	// The repository's ORDER BY switch is the sort whitelist: known values map
+	// to fixed clauses, anything else falls to the default ordering.
+	for _, sort := range []string{"bestseller", "rating", "discount", "nonsense", "'; DROP TABLE products--"} {
+		h, repo := setupProductHandler()
+		seedProduct(repo)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/products?sort="+url.QueryEscape(sort), nil)
+		rr := httptest.NewRecorder()
+		h.Search(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code, "sort=%s", sort)
+		var result SearchResult
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &result))
+		assert.Equal(t, 1, result.Total, "sort=%s", sort)
+	}
 }
 
 // --- GetByID endpoint tests ---

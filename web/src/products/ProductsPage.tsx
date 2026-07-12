@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { api, ApiError, formatPrice, discountPercent } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import type { Brand, Category, ProductListItem } from '../lib/api'
 import { useCart } from '../cart/useCart'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import {
-  Plus,
   LayoutGrid,
   List as ListIcon,
   SlidersHorizontal,
@@ -14,10 +13,9 @@ import {
   ChevronRight,
 } from '../components/icons'
 import { useToast } from '../components/useToast'
-import { StarRating } from '../reviews/StarRating'
 import { Seo } from '../components/Seo'
-import { PromoCarousel } from './PromoCarousel'
-import { MegaSale } from './MegaSale'
+import { ProductCard } from './ProductCard'
+import { HomeSections } from './HomeSections'
 import { ProductGridSkeleton } from '../components/Skeleton'
 
 const PAGE_SIZE = 24
@@ -36,207 +34,6 @@ const RATING_OPTIONS: { value: string; label: string }[] = [
   { value: '3', label: '3 stars & up' },
   { value: '2', label: '2 stars & up' },
 ]
-
-function StockSignal({ qty }: { qty: number }) {
-  if (qty === 0) return <span className="uc-tight text-[0.7rem] text-ink-faint italic">Out of stock</span>
-  if (qty <= 5)
-    return (
-      <span className="uc-tight text-[0.7rem] text-accent">
-        Only <span className="tnum">{qty}</span> left
-      </span>
-    )
-  return <span className="uc-tight text-[0.7rem] text-ink-faint"><span className="tnum">{qty}</span> in stock</span>
-}
-
-function QuickAddButton({
-  productName,
-  busy,
-  disabled,
-  onClick,
-}: {
-  productName: string
-  busy: boolean
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || busy}
-      aria-label={disabled ? `${productName} is unavailable` : `Add ${productName} to cart`}
-      title={disabled ? 'Unavailable' : 'Add to cart'}
-      className="inline-flex h-9 w-9 items-center justify-center border border-rule text-ink hover:border-accent hover:text-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-rule disabled:hover:text-ink"
-    >
-      <Plus
-        size={16}
-        strokeWidth={1.5}
-        aria-hidden
-        style={{ opacity: busy ? 0.4 : 1, transition: 'opacity 120ms var(--ease-out-quart)' }}
-      />
-    </button>
-  )
-}
-
-function ProductCard({
-  product,
-  busy,
-  onAdd,
-}: {
-  product: ProductListItem
-  busy: boolean
-  onAdd: () => void
-}) {
-  const off = discountPercent(product.price, product.sale_price)
-  const onSale = off != null
-  return (
-    <article className="group flex flex-col rounded-lg border border-rule bg-raised p-3 transition-shadow hover:border-rule-strong hover:shadow-[0_6px_20px_oklch(0.2_0.01_265/0.10)]">
-      <Link
-        to={`/product/${product.id}`}
-        aria-label={product.name}
-        className="flex flex-col gap-3"
-      >
-        <div className="relative aspect-square bg-surface rounded-md overflow-hidden p-[6%]">
-          {onSale && (
-            <span className="absolute left-2 top-2 z-10 rounded bg-accent px-1.5 py-0.5 text-[0.7rem] font-semibold text-on-accent tnum">
-              -{off}%
-            </span>
-          )}
-          {product.primary_image ? (
-            <img
-              src={product.primary_image}
-              alt={product.name}
-              loading="lazy"
-              className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.03]"
-            />
-          ) : null}
-        </div>
-        <div>
-          {product.brand_name && (
-            <p className="text-xs text-ink-faint uppercase tracking-wide">{product.brand_name}</p>
-          )}
-          <h3 className="text-ink text-[0.95rem] leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-            {product.name}
-          </h3>
-          {product.review_count > 0 && (
-            <span className="inline-flex mt-1.5">
-              <StarRating value={product.avg_rating} size={13} count={product.review_count} />
-            </span>
-          )}
-        </div>
-      </Link>
-
-      <div className="mt-auto pt-3 flex items-end justify-between gap-2">
-        <div className="min-w-0">
-          {onSale ? (
-            <>
-              <div className="flex items-baseline gap-1.5 flex-wrap">
-                <span className="tnum text-accent text-lg font-bold">
-                  {formatPrice(product.sale_price!)}
-                </span>
-                <span className="tnum text-ink-faint line-through text-xs">
-                  {formatPrice(product.price)}
-                </span>
-              </div>
-              <span className="mt-1 inline-block rounded bg-highlight px-1.5 py-0.5 text-[0.7rem] font-bold text-highlight-ink tnum">
-                Save {formatPrice(product.price - product.sale_price!)}
-              </span>
-            </>
-          ) : (
-            <p className="tnum text-ink text-lg font-bold">{formatPrice(product.price)}</p>
-          )}
-          <div className="mt-1.5">
-            <StockSignal qty={product.stock_quantity} />
-          </div>
-        </div>
-        <QuickAddButton
-          productName={product.name}
-          busy={busy}
-          disabled={product.stock_quantity === 0}
-          onClick={onAdd}
-        />
-      </div>
-    </article>
-  )
-}
-
-function ProductRow({
-  product,
-  busy,
-  onAdd,
-}: {
-  product: ProductListItem
-  busy: boolean
-  onAdd: () => void
-}) {
-  const off = discountPercent(product.price, product.sale_price)
-  const onSale = off != null
-  return (
-    <article className="group flex gap-4 sm:gap-6 rounded-lg border border-rule bg-raised p-3 transition-shadow hover:border-rule-strong hover:shadow-[0_6px_20px_oklch(0.2_0.01_265/0.10)]">
-      <Link
-        to={`/product/${product.id}`}
-        aria-label={product.name}
-        className="relative h-24 w-24 sm:h-28 sm:w-28 shrink-0 bg-surface rounded-md overflow-hidden p-[6%]"
-      >
-        {onSale && (
-          <span className="absolute left-1 top-1 z-10 rounded bg-accent px-1.5 py-0.5 text-[0.7rem] font-semibold text-on-accent tnum">
-            -{off}%
-          </span>
-        )}
-        {product.primary_image ? (
-          <img
-            src={product.primary_image}
-            alt={product.name}
-            loading="lazy"
-            className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.03]"
-          />
-        ) : null}
-      </Link>
-
-      <div className="flex-1 min-w-0 flex flex-col">
-        {product.brand_name && (
-          <p className="text-xs text-ink-faint uppercase tracking-wide">{product.brand_name}</p>
-        )}
-        <Link to={`/product/${product.id}`} className="min-w-0">
-          <h3 className="text-ink text-[1rem] leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-            {product.name}
-          </h3>
-        </Link>
-        {product.review_count > 0 && (
-          <span className="inline-flex mt-1.5">
-            <StarRating value={product.avg_rating} size={13} count={product.review_count} />
-          </span>
-        )}
-        <div className="mt-1.5">
-          <StockSignal qty={product.stock_quantity} />
-        </div>
-      </div>
-
-      <div className="shrink-0 flex flex-col items-end justify-between gap-2">
-        <div className="text-right">
-          {onSale ? (
-            <>
-              <span className="block tnum text-accent text-lg font-bold">
-                {formatPrice(product.sale_price!)}
-              </span>
-              <span className="tnum text-ink-faint line-through text-xs">
-                {formatPrice(product.price)}
-              </span>
-            </>
-          ) : (
-            <p className="tnum text-ink text-lg font-bold">{formatPrice(product.price)}</p>
-          )}
-        </div>
-        <QuickAddButton
-          productName={product.name}
-          busy={busy}
-          disabled={product.stock_quantity === 0}
-          onClick={onAdd}
-        />
-      </div>
-    </article>
-  )
-}
 
 type Mode =
   | { kind: 'all' }
@@ -263,7 +60,6 @@ export function ProductsPage() {
   const { show: showToast } = useToast()
   const [products, setProducts] = useState<ProductListItem[]>([])
   const [total, setTotal] = useState(0)
-  const [saleProducts, setSaleProducts] = useState<ProductListItem[]>([])
   const [category, setCategory] = useState<Category | null>(null)
   const [brands, setBrands] = useState<Brand[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -354,24 +150,6 @@ export function ProductsPage() {
   const activeFilters = [brand, catFilter, minParam, maxParam, rating].filter(Boolean).length
   const pristineHome =
     !slug && !rawQuery && page === 1 && !sort && activeFilters === 0
-
-  // Home view only: fetch the biggest discounts to drive the carousel + Mega
-  // Sale row. Separate from the main list so it doesn't depend on the catalogue.
-  useEffect(() => {
-    if (!pristineHome) return
-    let cancelled = false
-    api
-      .listProducts({ onSale: true, sort: 'discount', pageSize: 20 })
-      .then((res) => {
-        if (!cancelled) setSaleProducts(res.products)
-      })
-      .catch(() => {
-        if (!cancelled) setSaleProducts([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [pristineHome])
 
   const mode: Mode = slug && category
     ? { kind: 'category', category }
@@ -465,14 +243,7 @@ export function ProductsPage() {
 
   return (
     <Page>
-      {pristineHome && saleProducts.length > 0 && (
-        <>
-          <div className="mb-8 lg:mb-10">
-            <PromoCarousel products={saleProducts.slice(0, 6)} />
-          </div>
-          <MegaSale products={saleProducts} />
-        </>
-      )}
+      {pristineHome && <HomeSections busyId={busyId} onAdd={handleAdd} />}
 
       {seo}
       {mastheadContent}
@@ -564,7 +335,7 @@ export function ProductsPage() {
       ) : view === 'list' ? (
         <div className="flex flex-col gap-3">
           {products.map((p) => (
-            <ProductRow key={p.id} product={p} busy={busyId === p.id} onAdd={() => handleAdd(p)} />
+            <ProductCard key={p.id} variant="list" product={p} busy={busyId === p.id} onAdd={() => handleAdd(p)} />
           ))}
         </div>
       ) : (

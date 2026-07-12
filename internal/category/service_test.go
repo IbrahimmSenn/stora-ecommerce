@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockRepo is a hand-rolled Repository stub for service-level tests.
@@ -66,8 +67,9 @@ func TestService_Delete_PassesThroughInUse(t *testing.T) {
 }
 
 func TestBuildTree_Flat(t *testing.T) {
+	img := "/products/foo-1.webp"
 	cats := []Category{
-		{ID: uuid.New(), Name: "Electronics", Slug: "electronics"},
+		{ID: uuid.New(), Name: "Electronics", Slug: "electronics", ImageURL: &img},
 		{ID: uuid.New(), Name: "Clothing", Slug: "clothing"},
 	}
 
@@ -75,6 +77,10 @@ func TestBuildTree_Flat(t *testing.T) {
 	assert.Len(t, tree, 2)
 	assert.Empty(t, tree[0].Children)
 	assert.Empty(t, tree[1].Children)
+	// image_url carries through to the tree; missing stays nil.
+	require.NotNil(t, tree[0].ImageURL)
+	assert.Equal(t, img, *tree[0].ImageURL)
+	assert.Nil(t, tree[1].ImageURL)
 }
 
 func TestBuildTree_Nested(t *testing.T) {

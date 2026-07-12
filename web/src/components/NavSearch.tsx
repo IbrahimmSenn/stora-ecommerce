@@ -12,9 +12,33 @@
  */
 import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../lib/api'
+import { api, formatPrice } from '../lib/api'
 import type { ProductSuggestion } from '../lib/api'
 import { Search } from './icons'
+
+/* Thumbnail + name + price row shared by both dropdown variants. */
+function SuggestionRow({ s }: { s: ProductSuggestion }) {
+  return (
+    <span className="flex items-center gap-3 min-w-0">
+      <span className="h-8 w-8 shrink-0 rounded bg-sunken overflow-hidden flex items-center justify-center">
+        {s.image_url && (
+          <img src={s.image_url} alt="" loading="lazy" className="h-full w-full object-contain" />
+        )}
+      </span>
+      <span className="flex-1 min-w-0 truncate">{s.name}</span>
+      <span className="shrink-0 text-right">
+        {s.sale_price != null ? (
+          <>
+            <span className="tnum font-semibold text-accent">{formatPrice(s.sale_price)}</span>{' '}
+            <span className="tnum text-xs text-ink-faint line-through">{formatPrice(s.price)}</span>
+          </>
+        ) : (
+          <span className="tnum font-semibold">{formatPrice(s.price)}</span>
+        )}
+      </span>
+    </span>
+  )
+}
 
 const DEBOUNCE_MS = 200
 
@@ -204,7 +228,7 @@ export function NavSearch({ fullWidth = false, prominent = false, onCommit }: Na
                     active ? 'bg-sunken text-ink' : 'text-ink-soft hover:text-ink'
                   } ${i < suggestions.length - 1 ? 'border-b border-rule' : ''}`}
                 >
-                  {s.name}
+                  <SuggestionRow s={s} />
                 </li>
               )
             })}
@@ -278,7 +302,7 @@ export function NavSearch({ fullWidth = false, prominent = false, onCommit }: Na
                   i < suggestions.length - 1 ? 'border-b border-rule' : ''
                 }`}
               >
-                {s.name}
+                <SuggestionRow s={s} />
               </li>
             )
           })}

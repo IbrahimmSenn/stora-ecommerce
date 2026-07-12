@@ -169,9 +169,10 @@ func buildTree(cats []Category) []CategoryTree {
 	for _, c := range cats {
 		nodeMap[c.ID] = &node{
 			CategoryTree: CategoryTree{
-				ID:   c.ID,
-				Name: c.Name,
-				Slug: c.Slug,
+				ID:       c.ID,
+				Name:     c.Name,
+				Slug:     c.Slug,
+				ImageURL: c.ImageURL,
 			},
 		}
 	}

@@ -131,6 +131,9 @@ type SearchResult struct {
 
 // Suggestion is a lightweight result for typeahead/autocomplete.
 type Suggestion struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	Price     int       `json:"price"`
+	SalePrice *int      `json:"sale_price,omitempty"`
+	ImageURL  *string   `json:"image_url,omitempty"`
 }

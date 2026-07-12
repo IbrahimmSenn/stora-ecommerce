@@ -120,6 +120,9 @@ export type ProductsResponse = {
 export type ProductSuggestion = {
   id: string
   name: string
+  price: number
+  sale_price?: number | null
+  image_url?: string | null
 }
 
 export type CartItem = {
@@ -204,6 +207,7 @@ export type Category = {
   name: string
   slug: string
   parent_id?: string | null
+  image_url?: string | null
   children?: Category[]
 }
 
