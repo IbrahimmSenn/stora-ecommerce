@@ -3,14 +3,9 @@ import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { Seo } from '../components/Seo'
 
-const team = [
-  { name: 'Ibrahim Sen', role: 'Founder & buyer' },
-  { name: 'Eminem', role: 'Operations' },
-  { name: 'Thanos', role: 'Design & web' },
-]
-
-const socials = [
-  { label: 'GitHub', href: 'https://github.com/IbrahimmSenn/iloveshopping' },
+const links = [
+  { label: 'GitHub — source code', href: 'https://github.com/IbrahimmSenn/stora-ecommerce' },
+  { label: 'm.ibrahimsenn@gmail.com', href: 'mailto:m.ibrahimsenn@gmail.com' },
 ]
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -27,45 +22,40 @@ export function AboutPage() {
     <Page width="max-w-3xl">
       <Seo
         title="About Stora"
-        description="Learn about Stora, an online store offering electronics, furniture, beauty, shoes and more — with customer reviews, clear pricing, and fast, secure checkout."
+        description="Stora is a portfolio project by Ibrahim Sen — a full-stack e-commerce platform built with Go, PostgreSQL, RabbitMQ, React, and Stripe. Nothing is sold; payments run in test mode."
       />
       <Masthead
         eyebrow="About"
         title="About Stora"
-        caption="Stora is an online store offering a wide range of products across electronics, home, beauty, fashion and more."
+        caption="Stora is a portfolio project — a full working e-commerce platform built to demonstrate real-world engineering, not to sell real products."
       />
 
-      <Section title="Our mission">
+      <Section title="What this is">
         <p className="text-ink-soft leading-relaxed max-w-prose">
-          Our goal is to make online shopping simple and trustworthy: clear
-          pricing, genuine customer reviews, secure payments, and reliable
-          delivery. We want every order to arrive as expected, and every
-          question to get a helpful answer.
+          Everything here works end to end: browsing, cart, checkout, order
+          history, reviews, and an admin area — but the shop is a demonstration.
+          Payments run in Stripe test mode, the catalogue is seed data, and no
+          real orders are shipped.
         </p>
       </Section>
 
-      <Section title="What we sell">
+      <Section title="How it's built">
         <p className="text-ink-soft leading-relaxed max-w-prose">
-          A broad catalogue spanning electronics, furniture, home, beauty,
-          fashion, footwear and more. Each product page shows detailed
-          information, multiple images, and ratings from verified buyers.
+          A Go backend (PostgreSQL, RabbitMQ, Stripe) with a React + TypeScript
+          frontend, encrypted PII at rest, two-factor admin authentication, a
+          full observability stack, and a CI/CD pipeline. The complete source
+          code and documentation are on GitHub.
         </p>
       </Section>
 
-      <Section title="The team">
-        <ul className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {team.map((m) => (
-            <li key={m.name}>
-              <p className="text-ink font-medium">{m.name}</p>
-              <p className="text-sm text-ink-faint">{m.role}</p>
-            </li>
-          ))}
-        </ul>
+      <Section title="Built by">
+        <p className="text-ink font-medium">Ibrahim Sen</p>
+        <p className="text-sm text-ink-faint">Full-stack developer</p>
       </Section>
 
-      <Section title="Find us">
+      <Section title="Find me">
         <ul className="flex flex-wrap gap-x-8 gap-y-2">
-          {socials.map((s) => (
+          {links.map((s) => (
             <li key={s.label}>
               <a
                 href={s.href}
@@ -82,7 +72,7 @@ export function AboutPage() {
               to="/contact"
               className="text-ink underline underline-offset-4 decoration-rule-strong hover:decoration-accent hover:text-accent transition-colors"
             >
-              Contact us
+              Contact form
             </Link>
           </li>
         </ul>
