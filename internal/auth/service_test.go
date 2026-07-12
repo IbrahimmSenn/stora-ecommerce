@@ -66,6 +66,16 @@ func (m *mockUserRepo) UpdatePassword(_ context.Context, userID string, password
 	return user.ErrUserNotFound
 }
 
+func (m *mockUserRepo) UpdateName(_ context.Context, userID string, name string) error {
+	for _, u := range m.users {
+		if u.Id.String() == userID {
+			u.Name = name
+			return nil
+		}
+	}
+	return user.ErrUserNotFound
+}
+
 func (m *mockUserRepo) ListAll(_ context.Context, _, _ int) ([]user.User, int, error) {
 	return nil, 0, nil
 }

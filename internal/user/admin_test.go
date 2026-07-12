@@ -17,7 +17,7 @@ func seedUser(m *mockRepo, role string) string {
 }
 
 func TestAdminSetRole_RejectsInvalidRole(t *testing.T) {
-	svc := NewService(newMockRepo(), 0, nil)
+	svc := NewService(newMockRepo(), 0, nil, nil)
 	repo := svc.(*userService).repo.(*mockRepo)
 	id := seedUser(repo, "customer")
 
@@ -27,7 +27,7 @@ func TestAdminSetRole_RejectsInvalidRole(t *testing.T) {
 
 func TestAdminSetRole_Promotes(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewService(repo, 0, nil)
+	svc := NewService(repo, 0, nil, nil)
 	id := seedUser(repo, "customer")
 
 	require.NoError(t, svc.AdminSetRole(context.Background(), id, "sales"))
@@ -36,7 +36,7 @@ func TestAdminSetRole_Promotes(t *testing.T) {
 
 func TestAdminSetRole_BlocksRemovingLastAdmin(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewService(repo, 0, nil)
+	svc := NewService(repo, 0, nil, nil)
 	id := seedUser(repo, "admin") // the only admin
 
 	err := svc.AdminSetRole(context.Background(), id, "customer")
@@ -45,7 +45,7 @@ func TestAdminSetRole_BlocksRemovingLastAdmin(t *testing.T) {
 
 func TestAdminSetRole_AllowsDemotionWhenAnotherAdminExists(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewService(repo, 0, nil)
+	svc := NewService(repo, 0, nil, nil)
 	id := seedUser(repo, "admin")
 	seedUser(repo, "admin") // a second admin
 
@@ -54,7 +54,7 @@ func TestAdminSetRole_AllowsDemotionWhenAnotherAdminExists(t *testing.T) {
 
 func TestAdminListUsers_ReturnsAll(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewService(repo, 0, nil)
+	svc := NewService(repo, 0, nil, nil)
 	seedUser(repo, "customer")
 	seedUser(repo, "admin")
 

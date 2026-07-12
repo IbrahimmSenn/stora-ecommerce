@@ -29,6 +29,7 @@ import { Masthead } from '../components/Masthead'
 import { useTheme } from '../lib/theme'
 import { getStripe, stripeAppearance } from '../payment/stripe'
 import { mapPaymentError, mapStripeError } from '../payment/errors'
+import { useDemoMode } from '../lib/useDemoMode'
 import { validateCheckout } from './validate'
 import type { CheckoutFormState } from './validate'
 
@@ -161,6 +162,7 @@ function CheckoutInner({ deliveryOptions }: { deliveryOptions: DeliveryOption[] 
   const navigate = useNavigate()
   const stripe = useStripe()
   const elements = useElements()
+  const demoMode = useDemoMode()
   const [lineBusy, setLineBusy] = useState<string | null>(null)
   const [lineError, setLineError] = useState<string | null>(null)
 
@@ -592,7 +594,7 @@ function CheckoutInner({ deliveryOptions }: { deliveryOptions: DeliveryOption[] 
             <div className="bg-raised px-5 py-5 border border-rule-strong">
               <PaymentElement options={{ layout: 'tabs' }} />
             </div>
-            {import.meta.env.DEV && (
+            {(import.meta.env.DEV || demoMode) && (
               <p className="text-xs text-ink-faint mt-3 leading-relaxed">
                 Test card{' '}
                 <span className="tnum text-ink-soft">4242 4242 4242 4242</span>{' '}

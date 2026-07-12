@@ -36,7 +36,7 @@ make up                    # boots db, runs migrations, seeds, starts API
 
 Open [http://localhost:8080](http://localhost:8080). To exercise Stripe end-to-end locally, run `stripe listen --forward-to http://localhost:8080/api/v1/webhooks/stripe` in a second terminal and paste the printed `whsec_...` into `.env`.
 
-Seeded local accounts: `admin@shop.com` / `admin123` (admin — 2FA setup required on first admin visit) and `customer@shop.com` / `customer123`, plus a small mixed catalog (7 categories, 5 brands, 10 products, reviews). On public demo deployments the admin password comes from the `ADMIN_PASSWORD` env instead.
+Seeded local accounts: `admin@shop.com` / `admin123` (admin — 2FA setup required on first admin visit) and `customer@shop.com` / `customer123`, plus a small mixed catalog (7 categories, 5 brands, 10 products, reviews). On public demo deployments the admin password comes from the `ADMIN_PASSWORD` env instead, and the admin dashboard is read-only — `DEMO_MODE=true` blocks all admin mutations while browsing orders, users, and the audit log still works.
 
 ### Bundled services
 

@@ -194,10 +194,10 @@ func main() {
 	paymentsEventPublisher := payments.NewAmqpPublisher(amqpPublisher)
 
 	userRepo := user.NewUserRepository(db, encryptor)
-	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier)
+	authRepo := auth.NewAuthRepository(db, encryptor)
+	userService := user.NewService(userRepo, cfg.BcryptCost, captchaVerifier, authRepo)
 	userHandler := user.NewHandler(userService)
 
-	authRepo := auth.NewAuthRepository(db, encryptor)
 	authService := auth.NewService(userRepo, authRepo, cfg.JWTSecret,
 		auth.WithMailer(mail),
 		auth.WithBaseURL(cfg.BaseURL),
@@ -591,6 +591,11 @@ func main() {
 		r.Post("/api/v1/reviews/{id}/helpful", reviewHandler.Vote)
 		r.Delete("/api/v1/reviews/{id}/helpful", reviewHandler.Unvote)
 
+		// --- Own profile (auth required) ---
+		r.Get("/api/v1/me", userHandler.Me)
+		r.Patch("/api/v1/me", userHandler.UpdateProfile)
+		r.Post("/api/v1/me/password", userHandler.ChangePassword)
+
 		// --- Saved addresses (auth required; owner-scoped) ---
 		r.Get("/api/v1/addresses", addressHandler.List)
 		r.Post("/api/v1/addresses", addressHandler.Create)
@@ -606,6 +611,9 @@ func main() {
 		r.Use(mw.Auth(tokenValidator))
 		r.Use(mw.RequireRole(mw.RoleAdmin, mw.RoleSupport, mw.RoleSales))
 		r.Use(mw.RequireStaff2FA(twoFactorChecker))
+		// Before audit: blocked demo attempts aren't real admin actions and
+		// would otherwise flood the audit log on a public demo.
+		r.Use(mw.DemoReadOnly(cfg.DemoMode))
 		r.Use(audit.Middleware(auditRecorder))
 
 		// Probe used by the admin SPA to gate the dashboard: reaching it means

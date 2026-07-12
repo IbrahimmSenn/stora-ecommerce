@@ -41,6 +41,12 @@ function loadScript(siteKey: string): Promise<void> {
   return scriptPromise
 }
 
+// True when the server has a reCAPTCHA site key configured. Used to decide
+// whether to show the reCAPTCHA branding line (required by Google's terms).
+export async function captchaEnabled(): Promise<boolean> {
+  return (await fetchSiteKey()) !== ''
+}
+
 export async function getCaptchaToken(action: string): Promise<string> {
   const siteKey = await fetchSiteKey()
   if (!siteKey) return '' // dev mode — backend's SKIP_CAPTCHA accepts empty

@@ -26,6 +26,8 @@ type UserRepository interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByID(ctx context.Context, id string) (*User, error)
 	UpdatePassword(ctx context.Context, userID string, passwordHash string) error
+	// UpdateName stores the display name encrypted; empty clears it.
+	UpdateName(ctx context.Context, userID string, name string) error
 	ListAll(ctx context.Context, limit, offset int) ([]User, int, error)
 	UpdateRole(ctx context.Context, userID, role string) error
 	CountByRole(ctx context.Context, role string) (int, error)
@@ -81,20 +83,20 @@ func (r *postgresUserRepository) CreateOAuthUser(ctx context.Context, user User)
 }
 
 func (r *postgresUserRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-	query := `SELECT id, email_encrypted, password_hash, role, created_at, updated_at FROM users WHERE email_hmac = $1`
+	query := `SELECT id, email_encrypted, name_encrypted, password_hash, role, created_at, updated_at FROM users WHERE email_hmac = $1`
 	row := r.db.QueryRow(ctx, query, r.enc.HMAC(normalizeEmail(email)))
 	return r.scanUser(row)
 }
 
 func (r *postgresUserRepository) GetUserByID(ctx context.Context, id string) (*User, error) {
-	query := `SELECT id, email_encrypted, password_hash, role, created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, email_encrypted, name_encrypted, password_hash, role, created_at, updated_at FROM users WHERE id = $1`
 	return r.scanUser(r.db.QueryRow(ctx, query, id))
 }
 
 func (r *postgresUserRepository) scanUser(row pgx.Row) (*User, error) {
 	var user User
-	var emailEnc []byte
-	err := row.Scan(&user.Id, &emailEnc, &user.PasswordHash, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+	var emailEnc, nameEnc []byte
+	err := row.Scan(&user.Id, &emailEnc, &nameEnc, &user.PasswordHash, &user.Role, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -104,7 +106,32 @@ func (r *postgresUserRepository) scanUser(row pgx.Row) (*User, error) {
 	if user.Email, err = r.enc.Decrypt(emailEnc); err != nil {
 		return nil, fmt.Errorf("decrypt email: %w", err)
 	}
+	if nameEnc != nil {
+		if user.Name, err = r.enc.Decrypt(nameEnc); err != nil {
+			return nil, fmt.Errorf("decrypt name: %w", err)
+		}
+	}
 	return &user, nil
+}
+
+func (r *postgresUserRepository) UpdateName(ctx context.Context, userID string, name string) error {
+	var nameEnc []byte
+	if name != "" {
+		enc, err := r.enc.Encrypt(name)
+		if err != nil {
+			return fmt.Errorf("encrypt name: %w", err)
+		}
+		nameEnc = enc
+	}
+	tag, err := r.db.Exec(ctx,
+		`UPDATE users SET name_encrypted = $1, updated_at = NOW() WHERE id = $2`, nameEnc, userID)
+	if err != nil {
+		return fmt.Errorf("update name: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (r *postgresUserRepository) ListAll(ctx context.Context, limit, offset int) ([]User, int, error) {

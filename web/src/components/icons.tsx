@@ -19,6 +19,7 @@ export {
   ThumbsUp,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Play,
   Pause,
   Check,

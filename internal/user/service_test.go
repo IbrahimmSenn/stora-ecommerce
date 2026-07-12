@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -63,6 +64,17 @@ func (m *mockRepo) UpdatePassword(_ context.Context, userID string, passwordHash
 	return ErrUserNotFound
 }
 
+func (m *mockRepo) UpdateName(_ context.Context, userID string, name string) error {
+	for email, u := range m.users {
+		if u.Id.String() == userID {
+			u.Name = name
+			m.users[email] = u
+			return nil
+		}
+	}
+	return ErrUserNotFound
+}
+
 func (m *mockRepo) ListAll(_ context.Context, limit, offset int) ([]User, int, error) {
 	out := []User{}
 	for _, u := range m.users {
@@ -95,7 +107,7 @@ func (m *mockRepo) CountByRole(_ context.Context, role string) (int, error) {
 // --- Input validation tests ---
 
 func TestRegister_ValidInput(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	resp, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "user@example.com",
@@ -107,7 +119,7 @@ func TestRegister_ValidInput(t *testing.T) {
 }
 
 func TestRegister_EmptyEmail(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "",
@@ -127,7 +139,7 @@ func TestRegister_InvalidEmailFormat(t *testing.T) {
 
 	for _, email := range tests {
 		t.Run(email, func(t *testing.T) {
-			svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+			svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 			_, err := svc.Register(context.Background(), RegisterRequest{
 				Email:    email,
 				Password: "Securepass1!",
@@ -138,7 +150,7 @@ func TestRegister_InvalidEmailFormat(t *testing.T) {
 }
 
 func TestRegister_EmptyPassword(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "user@example.com",
@@ -148,7 +160,7 @@ func TestRegister_EmptyPassword(t *testing.T) {
 }
 
 func TestRegister_ShortPassword(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "user@example.com",
@@ -158,7 +170,7 @@ func TestRegister_ShortPassword(t *testing.T) {
 }
 
 func TestRegister_ExactMinPassword(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "user@example.com",
@@ -169,7 +181,7 @@ func TestRegister_ExactMinPassword(t *testing.T) {
 
 func TestRegister_DuplicateEmail(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewService(repo, bcrypt.MinCost, nil)
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email: "dup@example.com", Password: "Securepass1!",
@@ -183,7 +195,7 @@ func TestRegister_DuplicateEmail(t *testing.T) {
 }
 
 func TestRegister_EmailNormalization_Case(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	resp, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "USER@EXAMPLE.COM",
@@ -194,7 +206,7 @@ func TestRegister_EmailNormalization_Case(t *testing.T) {
 }
 
 func TestRegister_EmailWithSpaces_Rejected(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "  user@example.com  ",
@@ -204,11 +216,133 @@ func TestRegister_EmailWithSpaces_Rejected(t *testing.T) {
 }
 
 func TestRegister_BothFieldsEmpty(t *testing.T) {
-	svc := NewService(newMockRepo(), bcrypt.MinCost, nil)
+	svc := NewService(newMockRepo(), bcrypt.MinCost, nil, nil)
 
 	_, err := svc.Register(context.Background(), RegisterRequest{
 		Email:    "",
 		Password: "",
 	})
 	assert.Error(t, err)
+}
+
+// --- Profile tests ---
+
+type mockRevoker struct {
+	revoked []string
+}
+
+func (m *mockRevoker) RevokeAllUserTokens(_ context.Context, userID string) error {
+	m.revoked = append(m.revoked, userID)
+	return nil
+}
+
+func registerTestUser(t *testing.T, svc UserService) *UserResponse {
+	t.Helper()
+	resp, err := svc.Register(context.Background(), RegisterRequest{
+		Email:    "profile@example.com",
+		Password: "Securepass1!",
+	})
+	require.NoError(t, err)
+	return resp
+}
+
+func TestGetMe_ReturnsProfile(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
+	u := registerTestUser(t, svc)
+
+	me, err := svc.GetMe(context.Background(), u.Id.String())
+	require.NoError(t, err)
+	assert.Equal(t, u.Email, me.Email)
+	assert.Empty(t, me.Name)
+}
+
+func TestUpdateProfile_TrimsAndStores(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
+	u := registerTestUser(t, svc)
+
+	me, err := svc.UpdateProfile(context.Background(), u.Id.String(), UpdateProfileRequest{Name: "  Ada Lovelace  "})
+	require.NoError(t, err)
+	assert.Equal(t, "Ada Lovelace", me.Name)
+}
+
+func TestUpdateProfile_EmptyClears(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
+	u := registerTestUser(t, svc)
+
+	_, err := svc.UpdateProfile(context.Background(), u.Id.String(), UpdateProfileRequest{Name: "Ada"})
+	require.NoError(t, err)
+	me, err := svc.UpdateProfile(context.Background(), u.Id.String(), UpdateProfileRequest{Name: ""})
+	require.NoError(t, err)
+	assert.Empty(t, me.Name)
+}
+
+func TestUpdateProfile_TooLong(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
+	u := registerTestUser(t, svc)
+
+	long := make([]rune, 101)
+	for i := range long {
+		long[i] = 'a'
+	}
+	_, err := svc.UpdateProfile(context.Background(), u.Id.String(), UpdateProfileRequest{Name: string(long)})
+	assert.ErrorIs(t, err, ErrNameTooLong)
+}
+
+func TestChangePassword_WrongCurrent(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
+	u := registerTestUser(t, svc)
+
+	err := svc.ChangePassword(context.Background(), u.Id.String(), ChangePasswordRequest{
+		CurrentPassword: "not-the-password",
+		NewPassword:     "Newsecurepass1!",
+	})
+	assert.ErrorIs(t, err, ErrWrongPassword)
+}
+
+func TestChangePassword_WeakNew(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
+	u := registerTestUser(t, svc)
+
+	err := svc.ChangePassword(context.Background(), u.Id.String(), ChangePasswordRequest{
+		CurrentPassword: "Securepass1!",
+		NewPassword:     "weak",
+	})
+	assert.Error(t, err)
+}
+
+func TestChangePassword_OAuthAccountRejected(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewService(repo, bcrypt.MinCost, nil, nil)
+	oauthUser := User{Id: uuid.New(), Email: "oauth@example.com", PasswordHash: ""}
+	require.NoError(t, repo.CreateOAuthUser(context.Background(), oauthUser))
+
+	err := svc.ChangePassword(context.Background(), oauthUser.Id.String(), ChangePasswordRequest{
+		CurrentPassword: "anything",
+		NewPassword:     "Newsecurepass1!",
+	})
+	assert.ErrorIs(t, err, ErrNoPassword)
+}
+
+func TestChangePassword_SuccessUpdatesHashAndRevokes(t *testing.T) {
+	repo := newMockRepo()
+	revoker := &mockRevoker{}
+	svc := NewService(repo, bcrypt.MinCost, nil, revoker)
+	u := registerTestUser(t, svc)
+
+	err := svc.ChangePassword(context.Background(), u.Id.String(), ChangePasswordRequest{
+		CurrentPassword: "Securepass1!",
+		NewPassword:     "Newsecurepass1!",
+	})
+	require.NoError(t, err)
+
+	stored, err := repo.GetUserByID(context.Background(), u.Id.String())
+	require.NoError(t, err)
+	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(stored.PasswordHash), []byte("Newsecurepass1!")))
+	assert.Equal(t, []string{u.Id.String()}, revoker.revoked)
 }

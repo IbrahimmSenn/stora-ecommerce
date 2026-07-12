@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
@@ -6,7 +6,7 @@ import { Button } from '../components/Button'
 import { Field } from '../components/Field'
 import { Seo } from '../components/Seo'
 import { api, ApiError } from '../lib/api'
-import { getCaptchaToken } from '../lib/captcha'
+import { captchaEnabled, getCaptchaToken } from '../lib/captcha'
 import { PasswordChecklist } from './PasswordChecklist'
 import { passwordIsStrong } from './passwordCriteria'
 
@@ -17,6 +17,17 @@ export function RegisterPage() {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [captchaActive, setCaptchaActive] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    captchaEnabled().then((on) => {
+      if (!cancelled) setCaptchaActive(on)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -87,11 +98,9 @@ export function RegisterPage() {
           </Link>
         </div>
 
-        <p className="text-xs text-ink-faint pt-6">
-          Protected by reCAPTCHA when a site key is configured. In development
-          with <span className="tnum">SKIP_CAPTCHA=true</span>, the token is
-          omitted.
-        </p>
+        {captchaActive && (
+          <p className="text-xs text-ink-faint pt-6">Protected by reCAPTCHA.</p>
+        )}
       </form>
     </Page>
   )

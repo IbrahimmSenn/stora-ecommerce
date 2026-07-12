@@ -5,6 +5,7 @@ import { Masthead } from '../components/Masthead'
 import { useAuth } from '../auth/useAuth'
 import { Seo } from '../components/Seo'
 import { api, ApiError } from '../lib/api'
+import { useDemoMode } from '../lib/useDemoMode'
 
 const linkBase = 'text-sm text-ink-soft hover:text-ink transition-colors py-1'
 const activeStyle =
@@ -29,6 +30,7 @@ type Gate = 'loading' | 'ok' | 'needs2fa' | 'forbidden' | 'unauthed'
 
 export function AdminLayout() {
   const { isAuthed, initializing } = useAuth()
+  const demoMode = useDemoMode()
   const [gate, setGate] = useState<Gate>('loading')
   const [role, setRole] = useState<string>('')
 
@@ -114,6 +116,13 @@ export function AdminLayout() {
   return (
     <>
       <Seo title="Admin" noindex />
+      {demoMode && (
+        <div className="max-w-5xl mx-auto px-6 lg:px-10 pt-6">
+          <p className="rounded-md bg-sunken border border-rule px-4 py-2.5 text-sm text-ink-soft" role="status">
+            Demo mode — the dashboard is read-only. You can browse everything, but changes are disabled.
+          </p>
+        </div>
+      )}
       <div className="max-w-5xl mx-auto px-6 lg:px-10 pt-10 lg:pt-14">
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 border-b border-rule pb-3">
           <span className="uc-tight text-[0.7rem] text-ink-faint mr-2">

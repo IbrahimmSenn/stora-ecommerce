@@ -22,15 +22,32 @@ function decodeJwt(token: string): JwtClaims | null {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState<string | null>(null)
+  const [name, setName] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
   const [initializing, setInitializing] = useState(true)
 
-  const applyToken = useCallback((accessToken: string, emailHint: string) => {
-    setAccessToken(accessToken)
-    const claims = decodeJwt(accessToken)
-    setEmail(claims?.email ?? emailHint)
-    setRole(claims?.role ?? null)
+  // Fetch the profile for the display name. Best-effort: JWT-derived email
+  // stays the fallback if /me fails.
+  const refreshMe = useCallback(async () => {
+    try {
+      const me = await api.me()
+      setName(me.name || null)
+      if (me.email) setEmail(me.email)
+    } catch {
+      // Keep whatever the JWT claims provided.
+    }
   }, [])
+
+  const applyToken = useCallback(
+    (accessToken: string, emailHint: string) => {
+      setAccessToken(accessToken)
+      const claims = decodeJwt(accessToken)
+      setEmail(claims?.email ?? emailHint)
+      setRole(claims?.role ?? null)
+      void refreshMe()
+    },
+    [refreshMe],
+  )
 
   // On mount, try to re-hydrate the session from the HttpOnly refresh_token
   // cookie. Required because the access token lives in memory only — any
@@ -87,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setAccessToken(null)
     setEmail(null)
+    setName(null)
     setRole(null)
   }, [])
 
@@ -95,12 +113,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthed: email !== null,
       initializing,
       email,
+      name,
       role,
       login,
       loginWithToken,
       logout,
+      refreshMe,
     }),
-    [email, initializing, role, login, loginWithToken, logout],
+    [email, initializing, name, role, login, loginWithToken, logout, refreshMe],
   )
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>

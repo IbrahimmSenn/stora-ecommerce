@@ -30,7 +30,7 @@ const FOCUSABLE =
 
 export function SidePanel() {
   const { isOpen, close } = useSidePanel()
-  const { isAuthed, email, logout } = useAuth()
+  const { isAuthed, email, name, logout } = useAuth()
   const { refresh: refreshCart } = useCart()
   const navigate = useNavigate()
   const reduced = useReducedMotion()
@@ -213,11 +213,12 @@ export function SidePanel() {
         <footer className="border-t border-rule px-8 py-6 flex flex-col gap-2">
           {isAuthed ? (
             <>
-              {email && (
-                <p className="text-[0.7rem] text-ink-faint truncate mb-2">
-                  {email}
-                </p>
-              )}
+              <div className="mb-2">
+                {name && <p className="text-sm text-ink truncate">{name}</p>}
+                {email && (
+                  <p className="text-[0.7rem] text-ink-faint truncate">{email}</p>
+                )}
+              </div>
               <PanelLink to="/account">Account</PanelLink>
               <PanelButton onClick={handleLogout}>Log out</PanelButton>
             </>

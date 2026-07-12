@@ -148,9 +148,6 @@ export function LoginPage() {
             Facebook
           </Button>
         </div>
-        <p className="text-xs text-ink-faint mt-3">
-          Requires OAuth credentials configured in the server's .env.
-        </p>
       </div>
 
       <p className="mt-12 text-sm text-ink-soft">

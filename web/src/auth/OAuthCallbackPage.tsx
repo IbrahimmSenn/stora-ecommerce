@@ -37,9 +37,9 @@ export function OAuthCallbackPage() {
   return (
     <Page width="max-w-md">
       <Masthead
-        eyebrow="OAuth"
+        eyebrow="Account"
         title={error ? 'Sign-in failed.' : 'Signing you in.'}
-        caption={error ?? 'One moment — we are exchanging tokens.'}
+        caption={error ?? 'One moment…'}
       />
     </Page>
   )

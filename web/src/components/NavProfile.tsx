@@ -1,7 +1,8 @@
-/* NavProfile.tsx — person icon that toggles an auth/account dropdown.
+/* NavProfile.tsx — account entry in the nav.
  *
- * Logged out: Register, Log in.
- * Logged in: email (faint), Account, Log out.
+ * Logged out: person icon toggles a Register / Log in dropdown.
+ * Logged in: name (or email prefix) + icon link straight to /account, with a
+ * caret beside them toggling a dropdown (name/email header, Account, Log out).
  *
  * Dropdown closes on outside click, ESC, or route change. The trigger refocus
  * on close keeps keyboard flow stable.
@@ -10,10 +11,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { useCart } from '../cart/useCart'
-import { User } from './icons'
+import { User, ChevronDown } from './icons'
 
 export function NavProfile({ onDark = false }: { onDark?: boolean } = {}) {
-  const { isAuthed, email, logout } = useAuth()
+  const { isAuthed, email, name, logout } = useAuth()
   const { refresh } = useCart()
   const navigate = useNavigate()
   const location = useLocation()
@@ -60,36 +61,64 @@ export function NavProfile({ onDark = false }: { onDark?: boolean } = {}) {
     navigate('/')
   }
 
+  const toneCls = (active: boolean) =>
+    onDark
+      ? active
+        ? 'text-on-primary'
+        : 'text-on-primary/80 hover:text-on-primary'
+      : active
+        ? 'text-ink'
+        : 'text-ink-soft hover:text-ink'
+
+  const label = name ?? email?.split('@')[0] ?? ''
+
   return (
-    <div ref={wrapperRef} className="relative">
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={isAuthed ? `Account, ${email}` : 'Account'}
-        className={`inline-flex h-10 md:h-9 items-center justify-center gap-2 transition-colors ${
-          isAuthed && email
-            ? 'w-10 md:w-auto md:px-2'
-            : 'w-10 md:w-9'
-        } ${
-          onDark
-            ? open
-              ? 'text-on-primary'
-              : 'text-on-primary/80 hover:text-on-primary'
-            : open
-              ? 'text-ink'
-              : 'text-ink-soft hover:text-ink'
-        }`}
-      >
-        {isAuthed && email && (
-          <span className="hidden md:inline text-xs max-w-[14rem] truncate">
-            {email}
-          </span>
-        )}
-        <User size={18} strokeWidth={1.5} aria-hidden />
-      </button>
+    <div ref={wrapperRef} className="relative flex items-center">
+      {isAuthed ? (
+        <>
+          <Link
+            to="/account"
+            aria-label={`Account, ${label}`}
+            className={`inline-flex h-10 md:h-9 items-center justify-center gap-2 w-10 md:w-auto md:px-2 transition-colors ${toneCls(false)}`}
+          >
+            <span className="hidden md:inline text-xs max-w-[14rem] truncate">
+              {label}
+            </span>
+            <User size={18} strokeWidth={1.5} aria-hidden />
+          </Link>
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            aria-label="Account menu"
+            className={`inline-flex h-10 md:h-9 w-6 items-center justify-center transition-colors ${toneCls(open)}`}
+          >
+            <ChevronDown
+              size={14}
+              strokeWidth={1.5}
+              aria-hidden
+              style={{
+                transform: open ? 'rotate(180deg)' : 'none',
+                transition: 'transform 150ms var(--ease-out-quart)',
+              }}
+            />
+          </button>
+        </>
+      ) : (
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Account"
+          className={`inline-flex h-10 md:h-9 w-10 md:w-9 items-center justify-center transition-colors ${toneCls(open)}`}
+        >
+          <User size={18} strokeWidth={1.5} aria-hidden />
+        </button>
+      )}
 
       {open && (
         <div
@@ -98,11 +127,12 @@ export function NavProfile({ onDark = false }: { onDark?: boolean } = {}) {
         >
           {isAuthed ? (
             <>
-              {email && (
-                <p className="px-4 pt-3 pb-2 text-[0.7rem] text-ink-faint truncate">
-                  {email}
-                </p>
-              )}
+              <div className="px-4 pt-3 pb-2">
+                {name && <p className="text-sm text-ink truncate">{name}</p>}
+                {email && (
+                  <p className="text-[0.7rem] text-ink-faint truncate">{email}</p>
+                )}
+              </div>
               <MenuLink to="/account" onSelect={() => setOpen(false)}>
                 Account
               </MenuLink>

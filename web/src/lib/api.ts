@@ -148,6 +148,15 @@ export type MergeStatus = {
   user_cart?: Cart
 }
 
+export type Me = {
+  id: string
+  email: string
+  /** Empty string when the user hasn't set a name. */
+  name: string
+  role: string
+  created_at: string
+}
+
 export type LoginResponse = {
   access_token: string
   refresh_token: string
@@ -457,6 +466,14 @@ export const api = {
     request<{ message: string }>('/api/v1/auth/register', {
       method: 'POST',
       body: { email, password, captcha_token: captchaToken ?? '' },
+    }),
+  me: () => request<Me>('/api/v1/me'),
+  updateProfile: (name: string) =>
+    request<Me>('/api/v1/me', { method: 'PATCH', body: { name } }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ message: string }>('/api/v1/me/password', {
+      method: 'POST',
+      body: { current_password: currentPassword, new_password: newPassword },
     }),
   forgotPassword: (email: string) =>
     request<{ message: string }>('/api/v1/auth/forgot-password', {
