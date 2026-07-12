@@ -1,6 +1,6 @@
 # Stora
 
-[![pipeline](https://github.com/IbrahimmSenn/stora-ecommerce/actions/workflows/pipeline.yml/badge.svg)](https://github.com/IbrahimmSenn/stora-ecommerce/actions/workflows/pipeline.yml)
+[![pipeline](https://github.com/IbrahimmSenn/stora-ecommerce/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/IbrahimmSenn/stora-ecommerce/actions/workflows/pipeline.yml?query=branch%3Amain)
 
 A full-stack e-commerce platform built with Go, PostgreSQL, RabbitMQ, and Docker. Covers the full commerce loop — catalog browsing, guest and persistent carts, single-page checkout, Stripe payments, webhook-driven order state, async email over a message queue, order history, and the cancellation + refund workflow — with order PII (contact + shipping address) encrypted at rest. Frontend is a React 19 + TypeScript storefront with a custom design system (OKLCH tokens, variable fonts, light/dark toggle, signature cart transition).
 
