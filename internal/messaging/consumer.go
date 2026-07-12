@@ -9,6 +9,8 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/tracing"
 )
 
 // Handler processes one delivery. Returning nil acks; returning a non-nil
@@ -72,6 +74,11 @@ func (c *Consumer) Run(ctx context.Context, h Handler) error {
 }
 
 func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery, h Handler) {
+	// Join the publisher's trace via the context in the message headers.
+	ctx, endSpan := tracing.StartConsumeSpan(ctx, c.queue, d.RoutingKey, d.Headers)
+	var spanErr error
+	defer func() { endSpan(spanErr) }()
+
 	maxAttempts := len(c.Backoffs) + 1
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -84,6 +91,7 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery, h Handler) {
 					// Shutdown mid-retry — NACK with requeue so another
 					// instance (or this one on restart) can try again.
 					_ = d.Nack(false, true)
+					spanErr = ctx.Err()
 					return
 				case <-time.After(c.Backoffs[attempt-1]):
 				}
@@ -96,6 +104,7 @@ func (c *Consumer) dispatch(ctx context.Context, d amqp.Delivery, h Handler) {
 		return
 	}
 	log.Printf("messaging: giving up on %s after %d attempts (last err: %v) — routing to DLX", d.RoutingKey, maxAttempts, lastErr)
+	spanErr = lastErr
 	if err := d.Nack(false, false); err != nil {
 		log.Printf("messaging: nack failed for %s: %v", d.RoutingKey, err)
 	}

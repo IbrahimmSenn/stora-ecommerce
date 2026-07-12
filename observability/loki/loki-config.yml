@@ -1,0 +1,40 @@
+# Single-binary Loki with filesystem storage — right-sized for one host.
+# Data persists in the loki_data volume; 30 day retention to match Prometheus.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 720h
+  # Promtail 3.5's Docker SD path trips a structured-metadata size bug in Loki
+  # 3.5 ("negative structured metadata bytes"); we don't use structured
+  # metadata, so turning it off lets pushes through.
+  allow_structured_metadata: false
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem

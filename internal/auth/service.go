@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/metrics"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/passwordpolicy"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
@@ -46,6 +48,7 @@ type authService struct {
 	mailer     *mailer.Mailer
 	baseURL    string
 	bcryptCost int
+	metrics    metrics.Recorder
 }
 
 func NewService(userRepo user.UserRepository, authRepo AuthRepository, jwtSecret string, opts ...ServiceOption) AuthService {
@@ -55,6 +58,7 @@ func NewService(userRepo user.UserRepository, authRepo AuthRepository, jwtSecret
 		jwtSecret:  jwtSecret,
 		validate:   validator.New(),
 		bcryptCost: bcrypt.DefaultCost,
+		metrics:    metrics.Noop{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -76,6 +80,10 @@ func WithBcryptCost(cost int) ServiceOption {
 	return func(s *authService) { s.bcryptCost = cost }
 }
 
+func WithMetrics(r metrics.Recorder) ServiceOption {
+	return func(s *authService) { s.metrics = r }
+}
+
 // --- Login ---
 
 func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginResponse, error) {
@@ -88,12 +96,17 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 	u, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, user.ErrUserNotFound) {
+			s.metrics.LoginAttempt("failure", "invalid_credentials")
+			slog.Warn("login_failed", "reason", "invalid_credentials")
 			return nil, ErrInvalidCredentials
 		}
+		s.metrics.LoginAttempt("failure", "error")
 		return nil, fmt.Errorf("login: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)); err != nil {
+		s.metrics.LoginAttempt("failure", "invalid_credentials")
+		slog.Warn("login_failed", "reason", "invalid_credentials")
 		return nil, ErrInvalidCredentials
 	}
 
@@ -103,6 +116,10 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 	if twoFactorEnabled {
 		// 2FA is enabled — require TOTP code.
 		if req.TOTPCode == "" {
+			// Password was right; the client is being sent to the TOTP prompt.
+			// Tracked as its own result so 2FA challenges never look like
+			// brute-force failures on the security dashboard.
+			s.metrics.LoginAttempt("challenge", "2fa_required")
 			return nil, Err2FARequired
 		}
 
@@ -110,6 +127,8 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 		if !valid {
 			// Check recovery codes as fallback.
 			if !s.useRecoveryCode(ctx, u.Id.String(), tfa, req.TOTPCode) {
+				s.metrics.LoginAttempt("failure", "invalid_2fa")
+				slog.Warn("login_failed", "reason", "invalid_2fa")
 				return nil, ErrInvalid2FACode
 			}
 		}
@@ -135,6 +154,7 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 		return nil, fmt.Errorf("store refresh token: %w", err)
 	}
 
+	s.metrics.LoginAttempt("success", "")
 	return &LoginResponse{
 		AccessToken:            tokenPair.AccessToken,
 		RefreshToken:           tokenPair.RefreshToken,
@@ -160,21 +180,29 @@ func (s *authService) RefreshTokens(ctx context.Context, req RefreshRequest) (*L
 	stored, err := s.authRepo.GetRefreshToken(ctx, req.RefreshToken)
 	if err != nil {
 		if errors.Is(err, ErrTokenNotFound) {
+			s.metrics.TokenRefresh("failure")
 			return nil, ErrInvalidToken
 		}
+		s.metrics.TokenRefresh("failure")
 		return nil, fmt.Errorf("refresh tokens: %w", err)
 	}
 
 	if stored.Used {
+		// Replay of a rotated token — possible theft, so the whole family is
+		// revoked. Logged for the security dashboard.
+		slog.Warn("refresh_token_reuse", "user_id", stored.UserID.String())
+		s.metrics.TokenRefresh("failure")
 		_ = s.authRepo.RevokeAllUserTokens(ctx, stored.UserID.String())
 		return nil, ErrTokenUsed
 	}
 
 	if stored.Revoked {
+		s.metrics.TokenRefresh("failure")
 		return nil, ErrTokenRevoked
 	}
 
 	if time.Now().After(stored.ExpiresAt) {
+		s.metrics.TokenRefresh("failure")
 		return nil, ErrExpiredToken
 	}
 
@@ -210,6 +238,7 @@ func (s *authService) RefreshTokens(ctx context.Context, req RefreshRequest) (*L
 		return nil, fmt.Errorf("store refresh token: %w", err)
 	}
 
+	s.metrics.TokenRefresh("success")
 	return &LoginResponse{
 		AccessToken:  tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
@@ -235,6 +264,10 @@ func (s *authService) ForgotPassword(ctx context.Context, req ForgotPasswordRequ
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	// Counted before the user lookup so enumeration probes show up too.
+	s.metrics.PasswordReset("requested")
+	slog.Info("password_reset_requested")
 
 	// Always return success to prevent email enumeration.
 	u, err := s.userRepo.GetUserByEmail(ctx, email)
@@ -285,14 +318,17 @@ func (s *authService) ResetPassword(ctx context.Context, req ResetPasswordReques
 
 	stored, err := s.authRepo.GetPasswordResetToken(ctx, req.Token)
 	if err != nil {
+		s.metrics.PasswordReset("failed")
 		return err
 	}
 
 	if stored.Used {
+		s.metrics.PasswordReset("failed")
 		return ErrResetTokenUsed
 	}
 
 	if time.Now().After(stored.ExpiresAt) {
+		s.metrics.PasswordReset("failed")
 		return ErrResetTokenExpired
 	}
 
@@ -315,6 +351,7 @@ func (s *authService) ResetPassword(ctx context.Context, req ResetPasswordReques
 	// Revoke all refresh tokens for security.
 	_ = s.authRepo.RevokeAllUserTokens(ctx, stored.UserID.String())
 
+	s.metrics.PasswordReset("completed")
 	return nil
 }
 

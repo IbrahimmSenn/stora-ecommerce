@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ import (
 	"github.com/stripe/stripe-go/v76/refund"
 	"github.com/stripe/stripe-go/v76/webhook"
 
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/metrics"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
 )
 
@@ -148,10 +150,17 @@ type service struct {
 	refunds        RefundClient
 	webhookSecret  string
 	publishableKey string
+	metrics        metrics.Recorder
 }
 
-func NewService(repo Repository, ordersSvc orders.Service, events EventPublisher, stripe IntentClient, refunds RefundClient, webhookSecret, publishableKey string) Service {
-	return &service{
+type ServiceOption func(*service)
+
+func WithMetrics(r metrics.Recorder) ServiceOption {
+	return func(s *service) { s.metrics = r }
+}
+
+func NewService(repo Repository, ordersSvc orders.Service, events EventPublisher, stripe IntentClient, refunds RefundClient, webhookSecret, publishableKey string, opts ...ServiceOption) Service {
+	s := &service{
 		repo:           repo,
 		orders:         ordersSvc,
 		events:         events,
@@ -159,7 +168,12 @@ func NewService(repo Repository, ordersSvc orders.Service, events EventPublisher
 		refunds:        refunds,
 		webhookSecret:  webhookSecret,
 		publishableKey: publishableKey,
+		metrics:        metrics.Noop{},
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *service) CreateIntent(ctx context.Context, userID, guestID *uuid.UUID, orderID uuid.UUID) (*CreateIntentResponse, error) {
@@ -243,6 +257,8 @@ func (s *service) HandleWebhook(ctx context.Context, payload []byte, sigHeader s
 		IgnoreAPIVersionMismatch: true,
 	})
 	if err != nil {
+		s.metrics.PaymentFailed("webhook_signature_invalid")
+		slog.Warn("webhook_rejected", "reason", "signature_invalid")
 		return fmt.Errorf("%w: %v", ErrSignatureMismatch, err)
 	}
 	return s.handleEvent(ctx, event)
@@ -322,6 +338,8 @@ func (s *service) applySucceeded(ctx context.Context, existing *Payment) error {
 	if err := s.orders.MarkPaid(ctx, existing.OrderID); err != nil {
 		return err
 	}
+	s.metrics.PaymentSucceeded()
+	s.metrics.OrderPaid(existing.AmountCents)
 	evt := PaymentSucceededEvent{
 		OrderID:         existing.OrderID,
 		PaymentIntentID: existing.StripePaymentIntentID,
@@ -334,6 +352,21 @@ func (s *service) applySucceeded(ctx context.Context, existing *Payment) error {
 	return nil
 }
 
+// failureReason maps a Stripe error code onto the bounded label set used by
+// shop_payments_total — unknown codes collapse to "other" so cardinality
+// stays fixed no matter what Stripe sends.
+func failureReason(code string) string {
+	switch code {
+	case "card_declined", "insufficient_funds", "expired_card", "incorrect_cvc",
+		"incorrect_number", "processing_error", "authentication_required":
+		return code
+	case "":
+		return "unknown"
+	default:
+		return "other"
+	}
+}
+
 // applyFailed runs the side effects for a payment transitioning to "failed".
 // Caller is responsible for the idempotency check.
 func (s *service) applyFailed(ctx context.Context, existing *Payment, code, message string) error {
@@ -343,6 +376,7 @@ func (s *service) applyFailed(ctx context.Context, existing *Payment, code, mess
 	if err := s.orders.MarkPaymentFailed(ctx, existing.OrderID); err != nil {
 		return err
 	}
+	s.metrics.PaymentFailed(failureReason(code))
 	evt := PaymentFailedEvent{
 		OrderID:         existing.OrderID,
 		PaymentIntentID: existing.StripePaymentIntentID,

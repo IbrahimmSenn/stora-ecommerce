@@ -1,0 +1,355 @@
+# Alert rules (Grafana-managed, evaluated against Prometheus every 1m).
+# Each rule is: query A (instant PromQL) -> threshold expression C.
+# `for:` durations keep flapping signals from paging; thresholds and the
+# firing drill for each rule are documented in docs/observability.md.
+#
+# Suppression: Grafana-managed alerting has no Alertmanager inhibit_rules, so
+# cause/symptom dedup is done at the query level — the symptom rules
+# (HighErrorRate, HighLatencyP95) carry `and on() (up{job="api"} == 1)`, which
+# empties their result while the API target is down. Combined with
+# noDataState: OK they stay green during an outage and only APIDown pages.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: shop-alerts
+    folder: I Love Shopping
+    interval: 1m
+    rules:
+      - uid: shop-api-down
+        title: APIDown
+        condition: C
+        for: 1m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: API is down or unreachable
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#firing-each-alert-on-demand-review-runbook
+          description: >-
+            Prometheus cannot scrape the API metrics endpoint (up == 0 for
+            over a minute). Check `docker compose ps api` and
+            `docker compose logs api`. NoData also alerts: if Prometheus
+            itself lost the target, that is still an outage signal.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: up{job="api"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: shop-high-error-rate
+        title: HighErrorRate
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: More than 5% of requests are failing with 5xx
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#firing-each-alert-on-demand-review-runbook
+          description: >-
+            The 5-minute 5xx ratio exceeded 5% for 2 minutes. Check the
+            Technical Performance dashboard for the failing routes and the
+            Loki error panel for stack traces. A dead database shows up here
+            first (all DB-backed routes 500). Suppressed while APIDown fires
+            (query is guarded on up == 1).
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: (sum(rate(shop_http_requests_total{status=~"5.."}[5m])) / sum(rate(shop_http_requests_total[5m]))) and on() (up{job="api"} == 1)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+
+      - uid: shop-auth-failure-spike
+        title: AuthFailureSpike
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: Unusual number of failed login attempts
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#firing-each-alert-on-demand-review-runbook
+          description: >-
+            More than 25 failed logins in 5 minutes, sustained for 2 minutes —
+            brute force or credential stuffing. Check the Security dashboard:
+            if auth-limiter 429s spike too, the rate limiter is absorbing it;
+            if not, tighten AUTH_RATE_LIMIT_RPS/BURST.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: sum(increase(shop_auth_login_total{result="failure"}[5m])) or vector(0)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [25] }
+
+      - uid: shop-high-latency
+        title: HighLatencyP95
+        condition: C
+        for: 3m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: API p95 latency above 1.5s
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#firing-each-alert-on-demand-review-runbook
+          description: >-
+            95th percentile request duration exceeded 1.5s for 3 minutes.
+            Check DB query latency and pool saturation on the Technical
+            Performance dashboard — under load the database CPU is the usual
+            bottleneck. Suppressed while APIDown fires (query is guarded on
+            up == 1).
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: histogram_quantile(0.95, sum by (le) (rate(shop_http_request_duration_seconds_bucket[5m]))) and on() (up{job="api"} == 1)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1.5] }
+
+      # --- SLO burn-rate alerts (multi-window, Google SRE style) -----------
+      # Recording rules live in observability/prometheus/rules.yml. Each rule
+      # checks a long and a short window: the long window proves sustained
+      # budget burn, the short window proves it is still happening (so a
+      # resolved incident stops paging fast). Encoding: query A returns the
+      # long-window burn rate only while the short window also exceeds the
+      # threshold (`and on() (...)`), noDataState OK otherwise.
+      #
+      # 14.4x = 30-day budget gone in ~2 days -> page. 6x = gone in ~5 days
+      # -> ticket-priority warning. A full outage under load crosses fast
+      # burn in ~6 minutes, slow burn in ~11.
+
+      - uid: shop-slo-availability-fast
+        title: SLOAvailabilityFastBurn
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: Availability SLO burning 14.4x — error budget gone in ~2 days
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#slos-and-error-budgets
+          description: >-
+            5xx errors are consuming the 99.5% availability budget at 14.4x
+            over both the 5m and 1h windows. This is an active incident:
+            check the SLO dashboard for the burn trend and the Technical
+            Performance dashboard for the failing routes. A dead database is
+            the most common cause here.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: slo:availability:burnrate1h and on() (slo:availability:burnrate5m > 14.4)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [14.4] }
+
+      - uid: shop-slo-availability-slow
+        title: SLOAvailabilitySlowBurn
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: Availability SLO burning 6x — error budget gone in ~5 days
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#slos-and-error-budgets
+          description: >-
+            A slow but sustained 5xx rate (6x budget burn over both 30m and
+            6h). Not an emergency, but left alone the monthly budget runs out
+            in days — find the failing route on the Technical Performance
+            dashboard and fix it during working hours.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: slo:availability:burnrate6h and on() (slo:availability:burnrate30m > 6)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [6] }
+
+      - uid: shop-slo-latency-fast
+        title: SLOLatencyFastBurn
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: Latency SLO burning 14.4x — too many requests over 500ms
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#slos-and-error-budgets
+          description: >-
+            More than ~7% of requests are slower than 500ms (against a 95%
+            target), sustained across the 5m and 1h windows. Check DB query
+            p95 and pool saturation on the Technical Performance dashboard;
+            use exemplars on the latency panel to jump to a slow trace.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: slo:latency:burnrate1h and on() (slo:latency:burnrate5m > 14.4)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [14.4] }
+
+      - uid: shop-slo-latency-slow
+        title: SLOLatencySlowBurn
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: Latency SLO burning 6x — sustained slow responses
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#slos-and-error-budgets
+          description: >-
+            Roughly 3% of requests over 500ms, sustained across 30m and 6h
+            windows — a creeping regression rather than an outage. Compare
+            DB query p95 by operation and check whether a recent change made
+            a hot route slower.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: slo:latency:burnrate6h and on() (slo:latency:burnrate30m > 6)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [6] }
+
+      # --- Business symptom ------------------------------------------------
+      # Alerts on the customer-visible outcome (payments failing) rather than
+      # any single cause. Volume guard: needs > 5 payment attempts in 15m so
+      # a quiet system never pages. A "zero paid orders while traffic is
+      # high" variant was considered and rejected for this environment: the
+      # k6 scenarios never complete a Stripe payment, so it would fire on
+      # every load test (see docs/observability.md).
+      - uid: shop-payment-failure-ratio
+        title: PaymentFailureRatio
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: Less than 90% of payment attempts are succeeding
+          runbook_url: https://github.com/IbrahimmSenn/stora-ecommerce/blob/main/docs/observability.md#slos-and-error-budgets
+          description: >-
+            Payment success ratio over 15m dropped below 90% with meaningful
+            volume. Check "Payment failures by reason" on the Technical
+            Performance dashboard: webhook_signature_invalid points at forged
+            or misconfigured webhooks (wrong STRIPE_WEBHOOK_SECRET), card
+            declines point at Stripe-side issues.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: (sum(increase(shop_payments_total{result="succeeded"}[15m])) / sum(increase(shop_payments_total[15m]))) and on() (sum(increase(shop_payments_total[15m])) > 5)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.9] }

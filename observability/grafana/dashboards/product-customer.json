@@ -1,0 +1,223 @@
+{
+  "title": "Product & Customer",
+  "uid": "shop-product",
+  "tags": ["shop", "business"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Top 10 products",
+      "description": "Best sellers by revenue in the selected range, with units for context.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "revenue" },
+            "properties": [{ "id": "unit", "value": "currencyEUR" }, { "id": "decimals", "value": 0 }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT oi.product_name AS product, SUM(oi.unit_price_cents*oi.quantity)/100.0 AS revenue, SUM(oi.quantity) AS units FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.status IN ('paid','processing','shipped','delivered') AND $__timeFilter(o.created_at) GROUP BY 1 ORDER BY 2 DESC LIMIT 10"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "bargauge",
+      "title": "Average rating by category",
+      "description": "Approved reviews only (all time).",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "options": { "orientation": "horizontal", "displayMode": "basic" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 5,
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "green", "value": 4 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.name AS category, ROUND(AVG(r.rating), 2) AS avg_rating FROM reviews r JOIN products p ON p.id = r.product_id JOIN categories c ON c.id = p.category_id WHERE r.status = 'approved' GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Orders by customer type (daily)",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, CASE WHEN user_id IS NULL THEN 'guest' ELSE 'registered' END AS metric, COUNT(*) AS orders FROM orders WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Review volume (daily)",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, COUNT(*) AS reviews FROM reviews WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Correlated: rating vs revenue by category",
+      "description": "Ratings and revenue disagree in both directions. High rating + low revenue = an under-marketed gem worth promoting. High revenue + mediocre rating = today's income at churn risk tomorrow. Neither signal shows this alone.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "revenue" },
+            "properties": [{ "id": "unit", "value": "currencyEUR" }, { "id": "decimals", "value": 0 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "avg_rating" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "max", "value": 5 },
+              { "id": "min", "value": 0 },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red", "value": null },
+                    { "color": "yellow", "value": 3 },
+                    { "color": "green", "value": 4 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH rev AS (SELECT p.category_id, SUM(oi.unit_price_cents*oi.quantity)/100.0 AS revenue FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id WHERE o.status IN ('paid','processing','shipped','delivered') GROUP BY 1), rat AS (SELECT p.category_id, AVG(r.rating) AS avg_rating, COUNT(*) AS reviews FROM reviews r JOIN products p ON p.id = r.product_id WHERE r.status = 'approved' GROUP BY 1) SELECT c.name AS category, ROUND(COALESCE(rat.avg_rating, 0), 2) AS avg_rating, COALESCE(rat.reviews, 0) AS reviews, COALESCE(rev.revenue, 0) AS revenue FROM categories c LEFT JOIN rev ON rev.category_id = c.id LEFT JOIN rat ON rat.category_id = c.id WHERE COALESCE(rev.revenue, 0) > 0 OR COALESCE(rat.reviews, 0) > 0 ORDER BY revenue DESC"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Conversion funnel",
+      "description": "Product views → add-to-cart → checkout → paid, in the selected range. Views and add-to-carts come from user_activity; checkout and paid from orders.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 9, "x": 0, "y": 28 },
+      "options": { "orientation": "horizontal", "displayMode": "basic" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT '1. Product views' AS stage, COUNT(*) AS count FROM user_activity WHERE event_type = 'view' AND $__timeFilter(occurred_at) UNION ALL SELECT '2. Added to cart', COUNT(*) FROM user_activity WHERE event_type = 'add_to_cart' AND $__timeFilter(occurred_at) UNION ALL SELECT '3. Checkout started', COUNT(*) FROM orders WHERE $__timeFilter(created_at) UNION ALL SELECT '4. Paid', COUNT(*) FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Funnel drop-off",
+      "description": "Share of each stage that survived from the previous one. The biggest drop is where UX work pays off first.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 7, "x": 9, "y": 28 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "kept_pct" },
+            "properties": [{ "id": "unit", "value": "percent" }, { "id": "decimals", "value": 1 }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH stages AS (SELECT 1 AS ord, 'Product views' AS stage, COUNT(*)::float AS count FROM user_activity WHERE event_type = 'view' AND $__timeFilter(occurred_at) UNION ALL SELECT 2, 'Added to cart', COUNT(*) FROM user_activity WHERE event_type = 'add_to_cart' AND $__timeFilter(occurred_at) UNION ALL SELECT 3, 'Checkout started', COUNT(*) FROM orders WHERE $__timeFilter(created_at) UNION ALL SELECT 4, 'Paid', COUNT(*) FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at)) SELECT stage, count::int AS count, ROUND((count / NULLIF(LAG(count) OVER (ORDER BY ord), 0) * 100)::numeric, 1) AS kept_pct FROM stages ORDER BY ord"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "View → paid conversion (daily)",
+      "description": "Paid orders as a share of product views per day. A dip here with steady traffic means the shop is losing buyers, not visitors.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 28 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "decimals": 2, "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH v AS (SELECT date_trunc('day', occurred_at) AS d, COUNT(*) AS views FROM user_activity WHERE event_type = 'view' AND $__timeFilter(occurred_at) GROUP BY 1), p AS (SELECT date_trunc('day', created_at) AS d, COUNT(*) AS paid FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at) GROUP BY 1) SELECT v.d AS time, COALESCE(p.paid, 0) / NULLIF(v.views, 0)::float AS conversion FROM v LEFT JOIN p ON p.d = v.d ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

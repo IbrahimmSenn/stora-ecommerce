@@ -1,0 +1,183 @@
+{
+  "title": "Business Intelligence",
+  "uid": "shop-business",
+  "tags": ["shop", "business"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Revenue (selected range)",
+      "description": "Sum of order totals for orders that reached payment (paid/processing/shipped/delivered).",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(total_cents),0)/100.0 AS revenue FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Paid orders",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS orders FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Average order value",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 2 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(AVG(total_cents),0)/100.0 AS aov FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "New registrations",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS registrations FROM users WHERE $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Daily revenue",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyEUR", "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, SUM(total_cents)/100.0 AS revenue FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Average order value (daily)",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "currencyEUR" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, AVG(total_cents)/100.0 AS aov FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "Revenue by category",
+      "description": "Which categories drive revenue — underperformers are candidates for promotion or delisting.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
+      "options": { "orientation": "horizontal", "legend": { "showLegend": false } },
+      "fieldConfig": { "defaults": { "unit": "currencyEUR", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.name AS category, SUM(oi.unit_price_cents*oi.quantity)/100.0 AS revenue FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id JOIN categories c ON c.id = p.category_id WHERE o.status IN ('paid','processing','shipped','delivered') AND $__timeFilter(o.created_at) GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "User registrations (daily)",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, COUNT(*) AS registrations FROM users WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Cart abandonment rate (daily)",
+      "description": "Carts with items, idle for over an hour, whose owner never placed an order afterwards — as a share of all carts with items created that day.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH cw AS (SELECT c.id, c.user_id, c.guest_session_id, c.created_at, c.updated_at FROM carts c WHERE EXISTS (SELECT 1 FROM cart_items ci WHERE ci.cart_id = c.id)) SELECT date_trunc('day', cw.created_at) AS time, 100.0 * COUNT(*) FILTER (WHERE cw.updated_at < now() - interval '1 hour' AND NOT EXISTS (SELECT 1 FROM orders o WHERE (o.user_id = cw.user_id OR o.guest_session_id = cw.guest_session_id) AND o.created_at >= cw.created_at)) / COUNT(*) AS abandonment FROM cw WHERE $__timeFilter(cw.created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Correlated: AOV — guest vs registered",
+      "description": "Registered customers consistently spend more per order than guests. The gap is the money left on the table by not converting guests: it sizes the value of account-creation nudges at checkout, which a single overall AOV number cannot show.",
+      "datasource": { "type": "postgres", "uid": "shopdb" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "currencyEUR" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('day', created_at) AS time, CASE WHEN user_id IS NULL THEN 'guest' ELSE 'registered' END AS metric, AVG(total_cents)/100.0 AS aov FROM orders WHERE status IN ('paid','processing','shipped','delivered') AND $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

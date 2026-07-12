@@ -1,0 +1,62 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      # Exemplar dots on latency panels link straight to the trace in Tempo.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # trace_id in the slog JSON becomes a click-through to Tempo. Regex on
+      # the raw line because structured metadata is disabled (WSL2 workaround
+      # in loki-config.yml).
+      derivedFields:
+        - name: trace_id
+          matcherRegex: '"trace_id":"(\w+)"'
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        # Custom query because the span resource (service.name=shop-api)
+        # doesn't match the Loki label (service=api, the compose name).
+        customQuery: true
+        query: '{service="api"} |= "$${__span.traceId}"'
+
+  # Read-only role created by migration 000037 — SELECT on commerce tables
+  # only, column-level grant on users so encrypted PII is never readable.
+  - name: ShopDB
+    uid: shopdb
+    type: postgres
+    access: proxy
+    url: db:5432
+    user: grafana_ro
+    secureJsonData:
+      password: grafana-ro-dev-password
+    jsonData:
+      database: mystore
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+      minInterval: 1m

@@ -1,0 +1,22 @@
+# Notification policy — the alert-fatigue controls live here:
+#   group_by alertname   one notification per problem, not per series
+#   group_wait 30s       batch alerts that fire together
+#   group_interval 5m    updates for an existing group at most every 5 minutes
+#   repeat_interval 4h   an unresolved alert re-notifies every 4h, not every eval
+#
+# Routing: severity=critical escalates to ops-critical (email + Discord);
+# everything else stays on ops-email. Nested routes inherit the group/timing
+# settings from the default policy.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: ops-email
+    group_by: ["alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: ops-critical
+        object_matchers:
+          - ["severity", "=", "critical"]

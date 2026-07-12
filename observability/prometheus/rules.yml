@@ -1,0 +1,55 @@
+# SLI/SLO recording rules.
+#
+# Two SLOs over the HTTP request stream:
+#   availability  99.5% of requests answer without a 5xx   (budget 0.5%)
+#   latency       95%   of requests answer under 500ms     (budget 5%)
+#
+# For each SLI the ratio is recorded at four windows (5m/30m/1h/6h) so the
+# burn-rate alerts can do multi-window checks (fast burn: 5m+1h, slow burn:
+# 30m+6h). Burn rate = fraction of error budget consumed per unit time; 1.0
+# means "spending exactly the budget", 14.4 means the whole 30-day budget
+# would be gone in ~2 days.
+groups:
+  - name: shop-sli
+    rules:
+      # Availability SLI: share of requests that did not 5xx.
+      - record: sli:http_availability:ratio_rate5m
+        expr: 1 - (sum(rate(shop_http_requests_total{status=~"5.."}[5m])) / sum(rate(shop_http_requests_total[5m])))
+      - record: sli:http_availability:ratio_rate30m
+        expr: 1 - (sum(rate(shop_http_requests_total{status=~"5.."}[30m])) / sum(rate(shop_http_requests_total[30m])))
+      - record: sli:http_availability:ratio_rate1h
+        expr: 1 - (sum(rate(shop_http_requests_total{status=~"5.."}[1h])) / sum(rate(shop_http_requests_total[1h])))
+      - record: sli:http_availability:ratio_rate6h
+        expr: 1 - (sum(rate(shop_http_requests_total{status=~"5.."}[6h])) / sum(rate(shop_http_requests_total[6h])))
+
+      # Latency SLI: share of requests answered under 500ms (le="0.5" bucket).
+      - record: sli:http_latency_fast:ratio_rate5m
+        expr: sum(rate(shop_http_request_duration_seconds_bucket{le="0.5"}[5m])) / sum(rate(shop_http_request_duration_seconds_count[5m]))
+      - record: sli:http_latency_fast:ratio_rate30m
+        expr: sum(rate(shop_http_request_duration_seconds_bucket{le="0.5"}[30m])) / sum(rate(shop_http_request_duration_seconds_count[30m]))
+      - record: sli:http_latency_fast:ratio_rate1h
+        expr: sum(rate(shop_http_request_duration_seconds_bucket{le="0.5"}[1h])) / sum(rate(shop_http_request_duration_seconds_count[1h]))
+      - record: sli:http_latency_fast:ratio_rate6h
+        expr: sum(rate(shop_http_request_duration_seconds_bucket{le="0.5"}[6h])) / sum(rate(shop_http_request_duration_seconds_count[6h]))
+
+  - name: shop-slo-burnrate
+    rules:
+      # Availability burn rate against a 99.5% target (0.5% budget).
+      - record: slo:availability:burnrate5m
+        expr: (1 - sli:http_availability:ratio_rate5m) / 0.005
+      - record: slo:availability:burnrate30m
+        expr: (1 - sli:http_availability:ratio_rate30m) / 0.005
+      - record: slo:availability:burnrate1h
+        expr: (1 - sli:http_availability:ratio_rate1h) / 0.005
+      - record: slo:availability:burnrate6h
+        expr: (1 - sli:http_availability:ratio_rate6h) / 0.005
+
+      # Latency burn rate against a 95%-under-500ms target (5% budget).
+      - record: slo:latency:burnrate5m
+        expr: (1 - sli:http_latency_fast:ratio_rate5m) / 0.05
+      - record: slo:latency:burnrate30m
+        expr: (1 - sli:http_latency_fast:ratio_rate30m) / 0.05
+      - record: slo:latency:burnrate1h
+        expr: (1 - sli:http_latency_fast:ratio_rate1h) / 0.05
+      - record: slo:latency:burnrate6h
+        expr: (1 - sli:http_latency_fast:ratio_rate6h) / 0.05

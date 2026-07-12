@@ -13,6 +13,9 @@ import { CartPanelProvider } from './cart/CartPanelProvider'
 import { SidePanelProvider } from './components/SidePanelProvider'
 import { ToastProvider } from './components/ToastProvider'
 import { ThemeProvider } from './lib/theme'
+import { initVitals } from './lib/vitals'
+
+initVitals()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

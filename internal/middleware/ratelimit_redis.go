@@ -69,5 +69,5 @@ func (s *redisStore) allow(ctx context.Context, key string) bool {
 // NewRedisRateLimiter builds a limiter whose state lives in Redis, shared across
 // instances. Used when REDIS_URL is configured.
 func NewRedisRateLimiter(client *redis.Client, prefix string, rps float64, burst int) *RateLimiter {
-	return &RateLimiter{store: newRedisStore(client, prefix, rps, burst)}
+	return &RateLimiter{store: newRedisStore(client, prefix, rps, burst), name: "general"}
 }

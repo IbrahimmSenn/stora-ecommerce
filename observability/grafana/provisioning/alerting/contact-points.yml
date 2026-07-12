@@ -1,0 +1,33 @@
+# Alert delivery. Two contact points, routed by severity in policies.yml:
+#   ops-email     warnings and everything else -> Mailhog (http://localhost:8025)
+#   ops-critical  critical alerts -> email AND Discord, so a page-worthy problem
+#                 reaches a channel someone actually watches
+#
+# Discord: set GRAFANA_DISCORD_WEBHOOK in .env and restart grafana. Without it,
+# compose substitutes a placeholder URL — provisioning stays valid, the Discord
+# delivery 404s (visible under Alerting -> Notifications history), and email
+# still delivers independently.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: ops-email
+    receivers:
+      - uid: ops-email-01
+        type: email
+        settings:
+          addresses: admin@shop.local
+          singleEmail: true
+
+  - orgId: 1
+    name: ops-critical
+    receivers:
+      - uid: ops-critical-email
+        type: email
+        settings:
+          addresses: admin@shop.local
+          singleEmail: true
+      - uid: ops-critical-discord
+        type: discord
+        settings:
+          url: ${GRAFANA_DISCORD_WEBHOOK}

@@ -12,8 +12,10 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/metrics"
 )
 
 // shippingRates is the built-in fallback used when no ShippingRater is wired
@@ -96,9 +98,24 @@ type service struct {
 	refunder   Refunder
 	reconciler Reconciler
 	rater      ShippingRater
+	metrics    metrics.Recorder
+	activity   activity.Logger
 }
 
-func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, geocoder Geocoder, refunder Refunder, reconciler Reconciler, rater ShippingRater) Service {
+type ServiceOption func(*service)
+
+func WithMetrics(r metrics.Recorder) ServiceOption {
+	return func(s *service) { s.metrics = r }
+}
+
+// WithActivityLogger records a purchase event per order item when an order
+// is marked paid — the last stage of the view → add_to_cart → purchase
+// funnel in user_activity.
+func WithActivityLogger(l activity.Logger) ServiceOption {
+	return func(s *service) { s.activity = l }
+}
+
+func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, geocoder Geocoder, refunder Refunder, reconciler Reconciler, rater ShippingRater, opts ...ServiceOption) Service {
 	v := validator.New()
 	// Stricter than `alpha,len=2`: rejects "ZZ" etc. by checking against the
 	// real ISO 3166-1 alpha-2 list. Applied via the `iso3166_1_alpha2` tag.
@@ -108,7 +125,7 @@ func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor
 	if geocoder == nil {
 		geocoder = PassthroughGeocoder{}
 	}
-	return &service{
+	s := &service{
 		repo:       repo,
 		carts:      carts,
 		encryptor:  encryptor,
@@ -117,7 +134,12 @@ func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor
 		refunder:   refunder,
 		reconciler: reconciler,
 		rater:      rater,
+		metrics:    metrics.Noop{},
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // resolveShipping returns the cost for a shipping method code. It uses the
@@ -142,6 +164,39 @@ func (s *service) resolveShipping(ctx context.Context, code string) (int64, erro
 }
 
 func (s *service) Checkout(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, req CheckoutRequest) (*OrderResponse, error) {
+	resp, err := s.checkout(ctx, userID, guestID, req)
+	if err != nil {
+		s.metrics.CheckoutFailed(checkoutFailReason(err))
+		return nil, err
+	}
+	customerType := "guest"
+	if userID != nil {
+		customerType = "registered"
+	}
+	s.metrics.OrderCreated(customerType)
+	return resp, nil
+}
+
+// checkoutFailReason maps a checkout error to a bounded metric label.
+func checkoutFailReason(err error) string {
+	var vErr validator.ValidationErrors
+	switch {
+	case errors.As(err, &vErr), errors.Is(err, ErrNoOwner):
+		return "validation"
+	case errors.Is(err, ErrAddressNotVerifiable), errors.Is(err, ErrAddressVerificationUnavailable):
+		return "address"
+	case errors.Is(err, ErrInvalidShipping):
+		return "shipping"
+	case errors.Is(err, ErrCartEmpty):
+		return "empty_cart"
+	case errors.Is(err, ErrStockChanged):
+		return "stock"
+	default:
+		return "error"
+	}
+}
+
+func (s *service) checkout(ctx context.Context, userID *uuid.UUID, guestID *uuid.UUID, req CheckoutRequest) (*OrderResponse, error) {
 	if userID == nil && guestID == nil {
 		return nil, ErrNoOwner
 	}
@@ -503,7 +558,30 @@ func (s *service) LoadByID(ctx context.Context, id uuid.UUID) (*OrderResponse, e
 }
 
 func (s *service) MarkPaid(ctx context.Context, id uuid.UUID) error {
-	return s.repo.UpdateStatus(ctx, id, StatusPaid)
+	if err := s.repo.UpdateStatus(ctx, id, StatusPaid); err != nil {
+		return err
+	}
+	s.logPurchases(ctx, id)
+	return nil
+}
+
+// logPurchases is best-effort — activity logging never fails an order
+// transition (same contract as the activity service itself).
+func (s *service) logPurchases(ctx context.Context, id uuid.UUID) {
+	if s.activity == nil {
+		return
+	}
+	row, items, _, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		log.Printf("orders: purchase activity for %s skipped: %v", id, err)
+		return
+	}
+	for _, it := range items {
+		if it.ProductID == nil {
+			continue
+		}
+		s.activity.LogPurchase(ctx, row.UserID, row.GuestSessionID, it.ProductID, nil)
+	}
 }
 
 // MarkPaymentFailed flips the order to payment_failed AND releases the stock

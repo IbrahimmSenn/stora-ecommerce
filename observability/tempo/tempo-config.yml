@@ -1,0 +1,30 @@
+# Single-binary Tempo, local filesystem storage — same footprint philosophy
+# as the Loki config. Receives OTLP from the api (gRPC 4317 / HTTP 4318,
+# internal only), queried by Grafana on 3200. Retention matches the rest of
+# the stack (30 days).
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+compactor:
+  compaction:
+    block_retention: 720h
+
+usage_report:
+  reporting_enabled: false

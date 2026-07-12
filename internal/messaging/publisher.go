@@ -9,6 +9,8 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/tracing"
 )
 
 // Publisher publishes messages on a single confirm-mode channel.
@@ -37,12 +39,21 @@ func (p *Publisher) Channel() *amqp.Channel { return p.ch }
 
 // Publish marshals body to the given exchange + routing key and waits for
 // the broker confirm. Returns an error if the broker NACKs or the wait
-// times out (5s).
+// times out (5s). Trace context travels in the message headers so the
+// consumer joins the publisher's trace.
 func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, body []byte) error {
+	headers, endSpan := tracing.StartPublishSpan(ctx, exchange, routingKey)
+	err := p.publish(ctx, exchange, routingKey, headers, body)
+	endSpan(err)
+	return err
+}
+
+func (p *Publisher) publish(ctx context.Context, exchange, routingKey string, headers amqp.Table, body []byte) error {
 	confirm, err := p.ch.PublishWithDeferredConfirmWithContext(ctx, exchange, routingKey, false, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Timestamp:    time.Now(),
+		Headers:      headers,
 		Body:         body,
 	})
 	if err != nil {

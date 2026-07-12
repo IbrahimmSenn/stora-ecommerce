@@ -8,6 +8,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -27,13 +28,24 @@ type limiterStore interface {
 
 // RateLimiter is HTTP middleware over a limiterStore.
 type RateLimiter struct {
-	store limiterStore
+	store    limiterStore
+	name     string
+	onReject func()
 }
 
 // NewRateLimiter builds an in-memory limiter allowing `rps` requests/second per
 // IP with the given burst. Single-binary default.
 func NewRateLimiter(rps float64, burst int) *RateLimiter {
-	return &RateLimiter{store: newMemoryStore(rps, burst)}
+	return &RateLimiter{store: newMemoryStore(rps, burst), name: "general"}
+}
+
+// Instrument names the limiter for logs and registers a callback fired on each
+// 429 (used to bump the rate-limit rejection metric). Returns the receiver so
+// it chains off the constructor.
+func (rl *RateLimiter) Instrument(name string, onReject func()) *RateLimiter {
+	rl.name = name
+	rl.onReject = onReject
+	return rl
 }
 
 // Middleware rejects a client that has exhausted its bucket with 429 and a
@@ -41,6 +53,10 @@ func NewRateLimiter(rps float64, burst int) *RateLimiter {
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !rl.store.allow(r.Context(), clientIP(r)) {
+			slog.Warn("rate_limited", "limiter", rl.name, "ip", clientIP(r), "path", r.URL.Path)
+			if rl.onReject != nil {
+				rl.onReject()
+			}
 			w.Header().Set("Retry-After", "1")
 			response.ErrorWithCode(w, http.StatusTooManyRequests, "rate_limited",
 				"too many requests — please slow down and try again in a moment")

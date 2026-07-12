@@ -1,0 +1,55 @@
+# Scrape config for the compose monitoring profile. Targets are compose
+# service names — nothing here is reachable from outside the network except
+# the Prometheus UI itself (host port 9090).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# SLI/SLO recording rules (see docs/observability.md, "SLOs and error budgets").
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  # Application metrics — internal listener, not published to the host.
+  - job_name: api
+    static_configs:
+      - targets: ["api:9091"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Per-container CPU/memory/network (replaces hand-collected docker stats).
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Host-level CPU/memory/disk.
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Broker health: connections, channels, global message rates.
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+
+  # Per-queue depth/consumers (includes payments.emails.dlq). The aggregated
+  # endpoint above deliberately omits per-queue series; this opt-in family is
+  # bounded by the app's fixed queue topology.
+  - job_name: rabbitmq-queues
+    metrics_path: /metrics/detailed
+    params:
+      family: [queue_coarse_metrics, queue_consumer_count]
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+
+  # Postgres server internals via the postgres_exporter role (pg_monitor).
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # redis_up == 0 while the `scale` profile is down — expected, not an error.
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]

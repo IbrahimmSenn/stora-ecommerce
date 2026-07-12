@@ -52,6 +52,10 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      # Adds rabbitmq_prometheus (metrics on :15692, internal only). The file
+      # replaces the image default, so it must also list rabbitmq_management.
+      - ./observability/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -114,6 +118,11 @@ services:
       SMTP_HOST: mailhog
       SMTP_PORT: "1025"
       UPLOAD_DIR: /app/uploads
+      LOG_FORMAT: json
+      # Tracing is opt-in: set OTEL_ENABLED=true in .env (and start the
+      # monitoring profile so tempo exists). Export failures are non-fatal.
+      OTEL_ENABLED: ${OTEL_ENABLED:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
       TLS_ENABLED: "true"
       TLS_PORT: "8443"
       TLS_CERT_FILE: /app/certs/server.crt
@@ -129,6 +138,132 @@ services:
       timeout: 3s
       retries: 5
 
+  # --- Observability stack (Prometheus + Grafana + Loki) ---
+  # Off by default. Start with: docker compose --profile monitoring up -d
+  # Configs and dashboards live in observability/ — see docs/observability.md.
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      # Exemplars link latency histogram samples to Tempo traces.
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    profiles: ["monitoring"]
+    depends_on:
+      - prometheus
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Alert emails land in Mailhog (http://localhost:8025) — works offline.
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: mailhog:1025
+      GF_SMTP_FROM_ADDRESS: grafana@shop.local
+      GF_SMTP_SKIP_VERIFY: "true"
+      # Critical alerts also go to Discord — set a real webhook URL in .env.
+      # The placeholder keeps contact-point provisioning valid when unset
+      # (empty url fails validation); its deliveries 404 harmlessly and the
+      # email integration on the same contact point still delivers.
+      GRAFANA_DISCORD_WEBHOOK: ${GRAFANA_DISCORD_WEBHOOK:-https://discord.com/api/webhooks/0/unconfigured}
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+
+  loki:
+    image: grafana/loki:3.5.0
+    profiles: ["monitoring"]
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+
+  # Trace storage. The api exports OTLP spans here when OTEL_ENABLED=true;
+  # Grafana queries it on 3200 (internal only).
+  tempo:
+    image: grafana/tempo:2.7.2
+    profiles: ["monitoring"]
+    command: -config.file=/etc/tempo/tempo-config.yml
+    volumes:
+      - ./observability/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
+      - tempo_data:/var/tempo
+
+  promtail:
+    image: grafana/promtail:3.5.0
+    profiles: ["monitoring"]
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    profiles: ["monitoring"]
+    privileged: true
+    # docker.sock lets cAdvisor read container metadata (names + compose
+    # labels) via the Docker API — without it, Docker Desktop on WSL2 exports
+    # series with empty labels because /var/lib/docker is virtualized away.
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    devices:
+      - /dev/kmsg
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    profiles: ["monitoring"]
+    # Mount /proc and /sys rather than the whole rootfs with rslave — the
+    # rslave propagation isn't available under WSL2 ("/ is not a shared mount").
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+
+  # Postgres server internals (connections, tuple rates, cache hit ratio) —
+  # complements the client-side pgxpool metrics the api already exports.
+  # Uses the dedicated postgres_exporter role (migration 000038, pg_monitor).
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    profiles: ["monitoring"]
+    environment:
+      DATA_SOURCE_NAME: postgresql://postgres_exporter:postgres-exporter-dev-password@db:5432/${POSTGRES_DB:-mystore}?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Redis is on the `scale` profile and usually off; redis_up == 0 is then a
+  # truthful "not running" signal rather than a scrape failure.
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.69.0
+    profiles: ["monitoring"]
+    environment:
+      REDIS_ADDR: redis://redis:6379
+
 volumes:
   pgdata:
   uploads:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:

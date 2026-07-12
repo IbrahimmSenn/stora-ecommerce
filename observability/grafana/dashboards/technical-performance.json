@@ -1,0 +1,377 @@
+{
+  "title": "Technical Performance",
+  "uid": "shop-technical",
+  "tags": ["shop", "technical"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Request rate",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(shop_http_requests_total[5m]))", "legendFormat": "req/s" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "5xx error ratio",
+      "description": "Share of all requests answered with a server error. The HighErrorRate alert fires above 5%.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(shop_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(shop_http_requests_total[5m]))",
+          "legendFormat": "5xx ratio"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p95 latency (all routes)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(shop_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "DB pool in use",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "shop_db_pool_acquired_conns", "legendFormat": "acquired" },
+        { "refId": "B", "expr": "shop_db_pool_max_conns", "legendFormat": "max" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "API latency p95 by endpoint",
+      "description": "Route patterns, not raw URLs — search, cart, checkout, and auth are the ones that matter for the user journey.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(shop_http_request_duration_seconds_bucket{route=~\"/api/.*\"}[5m]))) > 0",
+          "legendFormat": "{{route}}",
+          "exemplar": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "HTTP errors by status",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(shop_http_requests_total{status=~\"4..|5..\"}[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Request volume by route (top 10)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (route) (rate(shop_http_requests_total[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "DB query latency p95 by operation",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(shop_db_query_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{operation}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Payment failures by reason",
+      "description": "Failed payment attempts per hour, from Stripe webhook events. A spike in one reason (e.g. gateway errors) points at the processor; a spread points at checkout UX.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 22 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (increase(shop_payments_total{result=\"failed\"}[1h]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Host CPU utilization",
+      "description": "Host CPU in use (100% − idle) from node-exporter. The '90% load' line in the load-test report is read here. On a native-Linux host, add cAdvisor's per-container series (container_cpu_usage_seconds_total by compose service) to attribute it — that mapping is unavailable under Docker Desktop/WSL2.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 22 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 } ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[2m])) * 100)",
+          "legendFormat": "host CPU %"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Memory: host used & API process RSS",
+      "description": "Host memory in use (node-exporter) and the API's own resident set (process collector on /metrics). cAdvisor adds a per-container breakdown on native-Linux hosts.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 31 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "legendFormat": "host used"
+        },
+        {
+          "refId": "B",
+          "expr": "process_resident_memory_bytes{job=\"api\"}",
+          "legendFormat": "api process RSS"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Recent API errors (Loki)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 31 },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "expr": "{service=\"api\", level=\"ERROR\"}" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "RabbitMQ queue depth by queue",
+      "description": "Ready + unacked messages per queue. A growing payments.emails queue means the consumer is behind; anything in payments.emails.dlq is a message that exhausted its retries and needs a human.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 40 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (queue) (rabbitmq_detailed_queue_messages)",
+          "legendFormat": "{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "RabbitMQ throughput & consumers",
+      "description": "Broker-wide message receive/ack rates plus consumer count per queue. Consumers dropping to 0 while depth grows = the notifications worker died.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 40 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 1 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rate(rabbitmq_global_messages_received_total[5m])", "legendFormat": "received/s" },
+        { "refId": "B", "expr": "rate(rabbitmq_global_messages_acknowledged_total[5m])", "legendFormat": "acked/s" },
+        { "refId": "C", "expr": "sum by (queue) (rabbitmq_detailed_queue_consumers)", "legendFormat": "consumers {{queue}}" }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Postgres tuple throughput",
+      "description": "Rows fetched/inserted/updated/deleted per second, server-side (postgres_exporter). Complements the client-side pgx pool and query-latency panels above.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 49 },
+      "fieldConfig": { "defaults": { "unit": "ops", "decimals": 0 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rate(pg_stat_database_tup_fetched{datname!~\"template.*|postgres|\"}[5m])", "legendFormat": "fetched" },
+        { "refId": "B", "expr": "rate(pg_stat_database_tup_inserted{datname!~\"template.*|postgres|\"}[5m])", "legendFormat": "inserted" },
+        { "refId": "C", "expr": "rate(pg_stat_database_tup_updated{datname!~\"template.*|postgres|\"}[5m])", "legendFormat": "updated" },
+        { "refId": "D", "expr": "rate(pg_stat_database_tup_deleted{datname!~\"template.*|postgres|\"}[5m])", "legendFormat": "deleted" }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Postgres connections",
+      "description": "Server-side backend count vs the configured ceiling. If backends approach max_connections while the api pool panel looks calm, something else (psql sessions, exporters, a second api) is eating connections.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 49 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "min": 0 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(pg_stat_database_numbackends{datname!~\"template.*|\"})", "legendFormat": "backends" },
+        { "refId": "B", "expr": "pg_settings_max_connections", "legendFormat": "max_connections" }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Cache hit ratios",
+      "description": "Postgres buffer-cache hit ratio (healthy is ≥ 0.99 for this working set). Redis appears only when the `scale` profile runs — redis_up is 0 otherwise, which is expected.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 49 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "decimals": 3 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|\"}[5m])) / (sum(rate(pg_stat_database_blks_hit{datname!~\"template.*|\"}[5m])) + sum(rate(pg_stat_database_blks_read{datname!~\"template.*|\"}[5m])))",
+          "legendFormat": "postgres buffer hit"
+        },
+        {
+          "refId": "B",
+          "expr": "(rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))) and on() (redis_up == 1)",
+          "legendFormat": "redis hit"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Web Vitals p75 (LCP / INP / FCP / TTFB)",
+      "description": "Real-user timings beaconed from the SPA (p75 is the standard Web Vitals percentile). Good thresholds: LCP 2.5s, INP 0.2s, FCP 1.8s, TTFB 0.8s. Needs real browser traffic — k6 doesn't run the frontend.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 58 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "custom": { "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2.5 },
+              { "color": "red", "value": 4 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.75, sum by (le, vital) (rate(shop_web_vitals_seconds_bucket[15m])))",
+          "legendFormat": "{{vital}}"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Web Vitals p75 — CLS",
+      "description": "Cumulative Layout Shift (unitless — separate from the time vitals on purpose). Good under 0.1, poor above 0.25.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 58 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 3,
+          "min": 0,
+          "custom": { "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 0.25 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.75, sum by (le) (rate(shop_web_vitals_cls_bucket[15m])))",
+          "legendFormat": "CLS"
+        }
+      ]
+    }
+  ]
+}
