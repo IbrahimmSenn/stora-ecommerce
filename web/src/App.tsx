@@ -31,6 +31,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { AboutPage } from './pages/AboutPage'
 import { ContactPage } from './pages/ContactPage'
 import { ScrollToTop } from './components/ScrollToTop'
+import { DemoBanner } from './components/DemoBanner'
 
 function App() {
   return (
@@ -41,6 +42,7 @@ function App() {
       >
         Skip to content
       </a>
+      <DemoBanner />
       <Nav />
       <main id="main" tabIndex={-1} className="outline-none">
       <ErrorBoundary>

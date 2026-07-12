@@ -258,3 +258,31 @@ jobs:
             docker tag app:${{ github.sha }} "$image:latest"
             docker push "$image:latest"
           fi
+
+  # ---------- Stage 5: Production deploy ----------
+  deploy:
+    # Continuous deployment: every green main build goes live on the server.
+    # The server holds its own .env (secrets, COMPOSE_FILE with the prod
+    # overlay); this job only tells it which image to run. scripts/deploy.sh
+    # backs up the DB, migrates, starts, and smoke-tests — a failure leaves a
+    # rollback command in the log.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: delivery
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "DEPLOY_HOST secret not configured — skipping production deploy"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$USER@$HOST" \
+            "cd /opt/stora && git pull --ff-only && scripts/deploy.sh ghcr.io/${GITHUB_REPOSITORY,,}:${{ github.sha }}"

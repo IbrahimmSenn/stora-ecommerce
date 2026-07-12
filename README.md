@@ -1,36 +1,42 @@
-# I Love Shopping
+# Stora
 
-[![pipeline](https://github.com/IbrahimmSenn/iloveshopping/actions/workflows/pipeline.yml/badge.svg)](https://github.com/IbrahimmSenn/iloveshopping/actions/workflows/pipeline.yml)
+[![pipeline](https://github.com/IbrahimmSenn/stora-ecommerce/actions/workflows/pipeline.yml/badge.svg)](https://github.com/IbrahimmSenn/stora-ecommerce/actions/workflows/pipeline.yml)
 
-A full-stack e-commerce platform built with Go, PostgreSQL, RabbitMQ, and Docker. Covers the full commerce loop — catalog browsing, guest and persistent carts, single-page checkout, Stripe sandbox payments, webhook-driven order state, async email over a message queue, order history, and the cancellation + refund workflow — with the order PII (contact + shipping address) encrypted at rest. Frontend is a React 19 + TypeScript storefront with a custom design system (OKLCH tokens, variable fonts, light/dark toggle, signature cart transition).
+A full-stack e-commerce platform built with Go, PostgreSQL, RabbitMQ, and Docker. Covers the full commerce loop — catalog browsing, guest and persistent carts, single-page checkout, Stripe payments, webhook-driven order state, async email over a message queue, order history, and the cancellation + refund workflow — with order PII (contact + shipping address) encrypted at rest. Frontend is a React 19 + TypeScript storefront with a custom design system (OKLCH tokens, variable fonts, light/dark toggle, signature cart transition).
 
-## Quick start
+## Try it
+
+The whole stack runs locally with one command (see [Quick start](#quick-start-local)) — Stripe stays in **test mode**, so no real money moves:
+
+- Sign in as `customer@shop.com` / `customer123` (or register your own account, or check out as a guest).
+- Pay with test card `4242 4242 4242 4242`, any future expiry, any CVC. `4000 0000 0000 9995` simulates an insufficient-funds decline.
+- Cancel a paid order from **Orders** to see the idempotent Stripe refund flow.
+
+The repo is also deployment-ready: a production compose overlay, TLS via Caddy, a hardened `DEMO_MODE`, and a CI deploy stage — see [Deployment](#deployment).
+
+## Highlights
+
+- **Layered Go backend** — handler → service → repository, interfaces everywhere, raw SQL via pgx (no ORM), mock-tested services.
+- **Real payment lifecycle** — Stripe PaymentIntents, signature-verified webhooks, idempotent event handling, refunds, inventory locking (`SELECT ... FOR UPDATE` serialises concurrent checkouts on the last unit).
+- **Event-driven email** — payment events flow through RabbitMQ topic exchanges to a notifications consumer with retry + dead-letter queue.
+- **Security in depth** — JWT with refresh-token rotation and replay detection, TOTP 2FA (enforced for all admin accounts), RBAC (admin/support/sales/customer), reCAPTCHA v3, per-IP token-bucket rate limiting, AES-256-GCM encryption of PII at rest, audit logging of admin actions, and a boot-time production validator that refuses to start with insecure settings.
+- **Full observability stack** — Prometheus + Grafana + Loki + Tempo: RED metrics with trace exemplars, SLO burn-rate alerts, business dashboards with a conversion funnel, distributed traces from HTTP through SQL to RabbitMQ, browser Core Web Vitals.
+- **CI/CD pipeline** — five stages from tests and security scans through migration validation and an ephemeral-environment deployment rehearsal to continuous deployment on the live server, with scripted DB-backed rollback.
+
+## Quick start (local)
 
 Prerequisite: **Docker** + **Docker Compose**. That's it.
 
 ```bash
-git clone https://gitea.kood.tech/ibrahimsen/i-love-shopping3.git
-cd i-love-shopping3
-cp .env.example .env       # fill in Stripe + ENCRYPTION_KEY, others optional
+git clone https://github.com/IbrahimmSenn/stora-ecommerce.git
+cd stora-ecommerce
+cp .env.example .env       # fill in Stripe test keys + ENCRYPTION_KEY, others optional
 make up                    # boots db, runs migrations, seeds, starts API
 ```
 
-Open [http://localhost:8080](http://localhost:8080). To exercise Stripe end-to-end, run `stripe listen --forward-to http://localhost:8080/api/v1/webhooks/stripe` in a second terminal and paste the printed `whsec_...` into `.env`.
+Open [http://localhost:8080](http://localhost:8080). To exercise Stripe end-to-end locally, run `stripe listen --forward-to http://localhost:8080/api/v1/webhooks/stripe` in a second terminal and paste the printed `whsec_...` into `.env`.
 
-### Handing this to a reviewer
-
-If I've sent you the `.env` file directly, skip `cp .env.example .env` — drop my
-`.env` into the repo root instead. It has the encryption key and Stripe **test**
-keys already filled in, so:
-
-1. `make up`, then open [http://localhost:8080](http://localhost:8080). The
-   storefront, admin (after 2FA setup), reviews, cart, and checkout all work as-is.
-2. **For live card payments only**, the Stripe webhook needs one per-machine step:
-   run `stripe listen --forward-to http://localhost:8080/api/v1/webhooks/stripe`,
-   copy the `whsec_...` it prints over `STRIPE_WEBHOOK_SECRET` in `.env`, and make
-   sure `stripe login` is pointed at the same Stripe account the keys belong to
-   (I'll share that login). Without this, everything works except the final
-   card → paid → confirmation email step, because the webhook is signature-verified.
+Seeded local accounts: `admin@shop.com` / `admin123` (admin — 2FA setup required on first admin visit) and `customer@shop.com` / `customer123`, plus a small mixed catalog (7 categories, 5 brands, 10 products, reviews). On public demo deployments the admin password comes from the `ADMIN_PASSWORD` env instead.
 
 ### Bundled services
 
@@ -41,47 +47,9 @@ keys already filled in, so:
 | RabbitMQ | [localhost:15672](http://localhost:15672) (`guest`/`guest`) | Inspect `payments.emails` and the DLQ |
 | Mailhog | [localhost:8025](http://localhost:8025) | Captures every outgoing email |
 
-### Seed accounts
-
-| Email | Password | Role |
-|---|---|---|
-| `admin@shop.com` | `admin123` | admin |
-| `customer@shop.com` | `customer123` | customer |
-
-Plus a small mixed catalog (7 categories, 5 brands, 10 products, reviews).
-
-### Reviewer / admin testing guide
-
-Everything below is tested by **clicking through the UI** — no `curl` needed.
-
-**1. Enable admin 2FA (required once).** 2FA is enforced for all staff accounts, so the seeded admin must set it up before the dashboard unlocks. This *is* the "2FA enforced for admins" criterion — the block is expected, not a bug.
-
-1. Log in as `admin@shop.com` / `admin123`.
-2. Go to **Admin** (top-right nav) → you're blocked with a "Set up two-factor authentication" prompt → click it (or open `/account/2fa/setup`).
-3. Scan the QR with any authenticator app (Google Authenticator, Authy, 1Password) — or type the shown secret in manually.
-4. Enter the 6-digit code to confirm. The `/admin` dashboard is now unlocked. (Next logins ask for a current code.)
-
-**2. Walk the criteria.** Each admin section is a page in the left nav at `/admin`:
-
-| Test criterion | Where | What to do |
-|---|---|---|
-| 2FA enforced for all admins | `/admin` (first visit) | Confirm you were blocked until 2FA setup |
-| Product CRUD, all fields | Admin → **Products** | Create / edit / delete a product; set name, description, category, price, stock, images |
-| Bulk product upload (JSON + CSV) | Admin → Products → **Bulk upload** | Paste JSON or a CSV; submit |
-| Add / **edit** / **delete** categories | Admin → **Categories** | Create, then **Edit** and **Delete** a category (delete is blocked while products/subcategories reference it) |
-| **Manage delivery options** | Admin → **Delivery** | Create / edit / deactivate a shipping option; it appears at checkout |
-| Order status updates + refunds | Admin → **Orders** | Open an order; change shipping status; process a refund on a paid order |
-| View all users + assign roles | Admin → **Users** | Change a user's role (admin / support / sales / customer) |
-| Review moderation | Admin → **Reviews** | Approve / hide / delete a review |
-| Audit logging of admin actions | Admin → **Audit** | See the actions you just performed, logged |
-
-**3. Checkout / payments / refunds** use Stripe test mode. Card: **`4242 4242 4242 4242`**, any future expiry, any CVC, any ZIP. (Refunds need the Stripe webhook forwarder running — see Quick start.)
-
-> Role note: RBAC follows least privilege. The full list above requires the **admin** role. `support` sees Orders/Reviews; `sales` sees Products/Categories/Brands/Delivery.
-
 ### Make targets
 
-`make up` / `make down` / `make reset` (fresh DB) / `make test` / `make build` / `make migrate-up` / `make migrate-down`.
+`make up` / `make down` / `make reset` (fresh DB) / `make test` / `make build` / `make migrate-up` / `make migrate-down`. Observability: `make monitoring-up` / `make monitoring-down` / `make seed-history` / `make loadtest` / `make hostile`.
 
 ## Frontend
 
@@ -98,7 +66,7 @@ Routes:
 | `/auth/oauth/callback` | Lands here after Google / Facebook OAuth |
 | `/account`, `/account/2fa/setup`, `/account/2fa/disable` | Profile + TOTP management |
 | `/admin/products`, `/admin/categories`, `/admin/brands` | Admin CRUD (role-gated) |
-| `/dev/tokens` | Token rotation + replay-detection tester |
+| `/dev/tokens` | Token rotation + replay-detection tester (dev builds only) |
 
 ### Commerce walkthrough
 
@@ -106,11 +74,15 @@ Routes:
 2. Log in mid-shopping. If both a guest cart and a user cart exist, you'll be prompted to merge or keep one.
 3. `/checkout` — single page, contact (prefilled when authed), address, shipping method. Submitting creates the order in `pending_payment` and reserves stock.
 4. Stripe Elements at `/orders/:id/pay`. Test cards: `4242 4242 4242 4242` (succeeds), `4000 0000 0000 0002` (decline), `4000 0000 0000 9995` (insufficient funds).
-5. After success, the confirmation page polls until the webhook flips the order to `paid`. The email lands in Mailhog.
-6. From `/orders`, cancel a `paid` order — Stripe issues an idempotent refund, stock restocks, status flips to `refunded`, and a refund email lands in Mailhog.
-7. The RabbitMQ UI shows `payments.emails` incrementing on each event; stop Mailhog mid-payment and the message ends up in `payments.emails.dlq` after three retries.
+5. After success, the confirmation page polls until the webhook flips the order to `paid`, and a confirmation email goes out.
+6. From `/orders`, cancel a `paid` order — Stripe issues an idempotent refund, stock restocks, status flips to `refunded`, and a refund email follows.
+7. The RabbitMQ UI shows `payments.emails` incrementing on each event; stop the mail sink mid-payment and the message ends up in `payments.emails.dlq` after three retries.
 
 Access tokens live **in memory only** — refreshing the tab clears authentication. `/dev/tokens` exposes the rotation flow and demonstrates refresh-token replay detection.
+
+### Admin
+
+The admin area at `/admin` (2FA-enforced) covers product CRUD with multi-size image upload and JSON/CSV bulk import, category/brand/delivery-option management, order status updates and refunds, user role assignment, review moderation, and an audit log of every admin action. RBAC follows least privilege: `support` sees Orders/Reviews, `sales` sees Products/Categories/Brands/Delivery, only `admin` sees everything.
 
 ### Theming
 
@@ -165,7 +137,7 @@ Statuses: `pending_payment` → `paid` → `processing` → `shipped` → `deliv
 |---|---|---|
 | POST | `/api/v1/orders/{id}/payment-intent` | Owner-checked — lazily creates a Stripe PaymentIntent, persists a `payments` row, returns `client_secret` + `publishable_key`. Safe to call after `payment_failed`. |
 | POST | `/api/v1/webhooks/stripe` | Signature-verified. Handles `payment_intent.succeeded` and `payment_intent.payment_failed` — flips the order, persists payment metadata, publishes a JSON event to RabbitMQ. Idempotent. |
-| GET | `/api/v1/config/stripe` / `/config/recaptcha` | Publishable keys for the frontend |
+| GET | `/api/v1/config/stripe` / `/config/recaptcha` / `/config/demo` | Publishable keys + demo flag for the frontend |
 
 ### Admin (admin role required)
 
@@ -193,7 +165,7 @@ This is a modular monolith built to split into services without a rewrite. Rate 
 
 ### Data model
 
-Commerce tables added on top of the Project 1 identity + catalog schema. The encrypted columns (`*_encrypted`, `*_enc`) are AES-256-GCM bytea — see [PII encryption at rest](#pii-encryption-at-rest).
+The encrypted columns (`*_encrypted`, `*_enc`) are AES-256-GCM bytea — see [PII encryption at rest](#pii-encryption-at-rest).
 
 ```mermaid
 erDiagram
@@ -294,37 +266,57 @@ What's covered:
 
 - **Commerce services** — cart add/update/remove + merge strategies; orders checkout (rejects empty cart, stock-changed conflict, encrypted PII round-trip, ownership checks, cancel restocks, cancel-of-paid triggers refund, refund failure leaves status paid); payments (rejects non-payable status, persists intent, webhook flips + publishes event, idempotent on retries, bad signature rejected, refund is idempotent).
 - **Notifications consumer** — succeeded routes to confirmation body, failed includes reason + code, terminal errors on bad payloads, retry semantics.
-- **Identity / catalog (from Project 1)** — JWT, login/refresh/logout/2FA/password-reset, category tree, product CRUD, middleware enforcement, security (SQL injection, XSS, JWT tampering, oversized bodies, malformed JSON, negative-value injection).
+- **Identity / catalog** — JWT, login/refresh/logout/2FA/password-reset, category tree, product CRUD, middleware enforcement, security (SQL injection, XSS, JWT tampering, oversized bodies, malformed JSON, negative-value injection).
 - **Frontend (Vitest + Testing Library)** — checkout form validation (required fields, email + phone + postal + country code, whitespace trimming) and the recommendations rail (loading, empty, render, error resilience).
-
-### Manual testing with hot reload
-
-```bash
-make up                    # backend stack on :8080
-cd web && npm run dev      # Vite dev server on :5173
-```
-
-Open [http://localhost:5173](http://localhost:5173). The Vite server proxies `/api/*` to the Go API on `:8080`, so backend calls work unchanged while the frontend hot-reloads on file edits.
 
 ### Concurrent payment guard
 
 With one unit in stock, open two sessions and check the same product out in parallel — the second checkout fails with `409 stock or price changed while you were checking out`. `SELECT ... FOR UPDATE` on every cart line serialises the stock decrement.
 
+## Load testing
+
+k6 scenarios in [loadtest/](loadtest/) cover catalog browsing, search + add-to-cart, and full checkout, plus a hostile scenario (failed logins, rate-limit bursts, forged webhooks). Results and analysis — throughput, latency percentiles, breaking point, and identified bottlenecks — in [loadtest/REPORT.md](loadtest/REPORT.md).
+
 ## CI/CD
 
-Every push runs a four-stage pipeline (GitHub Actions): **build & test** (Go +
-frontend suites with JUnit reports, plus the Go suite re-run inside Docker) →
-**security scan** (gosec SAST, govulncheck + npm audit dependency scanning,
-gitleaks over the full git history, trivy on the built image) → **database
-migration validation** (all migrations up from zero, newest one down/up,
-idempotent seed) → **core delivery** (deploy into an ephemeral compose
-environment, backup-then-migrate, smoke-test the critical user flows, publish
-the image to GHCR as a versioned rollback target).
+Every push runs the pipeline (GitHub Actions): **build & test** (Go + frontend suites with JUnit reports, plus the Go suite re-run inside Docker) → **security scan** (gosec SAST, govulncheck + npm audit dependency scanning, gitleaks over the full git history, trivy on the built image) → **database migration validation** (all migrations up from zero, newest one down/up, idempotent seed) → **core delivery** (deploy into an ephemeral compose environment, backup-then-migrate, smoke-test the critical user flows, publish the image to GHCR as a versioned rollback target) → **production deploy** (merges to `main` go live automatically: SSH to the server, `scripts/deploy.sh` pulls the image, backs up the DB, migrates, restarts, and smoke-tests against the public URL).
 
-Deploys and rollbacks on any Docker host use the same scripts the pipeline
-runs: `scripts/deploy.sh <image>` and `scripts/rollback.sh <image> [backup.sql]`.
-Full documentation, gate policy, and the failure/rollback demo script:
-[docs/cicd.md](docs/cicd.md).
+Deploys and rollbacks on any Docker host use the same scripts the pipeline runs: `scripts/deploy.sh <image>` and `scripts/rollback.sh <image> [backup.sql]`. Full documentation, gate policy, and the failure/rollback demo script: [docs/cicd.md](docs/cicd.md).
+
+## Deployment
+
+The project deploys to any Docker host from the same compose files as local dev, plus a production overlay ([docker-compose.prod.yml](docker-compose.prod.yml)): Caddy terminates TLS with an automatic Let's Encrypt certificate and proxies to the api container; Postgres, RabbitMQ, and the api itself publish no host ports. `DEMO_MODE=true` keeps every production security check (Secure cookies, HSTS, strict boot-time validation) while allowing Stripe test keys and the seeded demo catalog — with the admin password supplied via env, never the dev default. Merges to `main` auto-deploy via the pipeline's final stage once the server secrets are configured. The full server setup is documented step by step in [docs/deploy-checklist.md](docs/deploy-checklist.md).
+
+## Observability
+
+A Prometheus + Grafana + Loki + Tempo stack (compose profile, off by default)
+covers technical health, business intelligence, and distributed tracing. The
+API exposes Prometheus metrics on an internal `:9091` (HTTP RED metrics with
+trace exemplars, DB query/pool metrics, business/security counters, and
+browser-reported Core Web Vitals via `POST /api/v1/vitals`), ships slog JSON
+logs to Loki via Promtail, and — with `OTEL_ENABLED=true` — exports OpenTelemetry
+spans (HTTP → SQL → RabbitMQ publish/consume) to Tempo. Grafana also reads the
+database directly through a column-restricted read-only role for the business
+dashboards, and Prometheus scrapes RabbitMQ, Postgres, and Redis exporters for
+dependency health.
+
+```bash
+make monitoring-up     # Prometheus (+SLO rules), Grafana, Loki, Promtail, Tempo, exporters
+make seed-history      # ~60 days of backdated users/orders/reviews/funnel activity
+make loadtest          # baseline browse/search/checkout traffic
+make hostile           # failed logins, rate-limit bursts, forged webhooks (security panels)
+```
+
+Grafana at [http://localhost:3001](http://localhost:3001) (`admin`/`admin` locally)
+serves five dashboards — **Business Intelligence**, **Product & Customer**
+(with a view → cart → checkout → paid conversion funnel), **Technical
+Performance**, **Security**, and **SLO / Error Budget** (99.5% availability +
+95%-under-500ms latency SLOs with multi-window burn rates) — plus nine
+provisioned alerts (infra symptoms, SLO burn-rate pairs, and a payment
+success-ratio business alert), severity-routed: warnings to email, criticals
+additionally to a Discord webhook. Full architecture, metric rationale, SLO
+math, the tracing walkthrough, the alert runbook, and data-generation docs:
+[docs/observability.md](docs/observability.md).
 
 ## Environment
 
@@ -335,6 +327,8 @@ Full documentation, gate policy, and the failure/rollback demo script:
 Optional (features degrade gracefully if absent): `GOOGLE_CLIENT_ID/SECRET`, `FB_CLIENT_ID/SECRET`, `RECAPTCHA_SITE_KEY/SECRET_KEY` (set `SKIP_CAPTCHA=true` in dev), `SMTP_HOST/PORT/USER/PASS/FROM` (Mailhog handles this in compose).
 
 `docker-compose.yml` overrides `DATABASE_URL`, `RABBITMQ_URL`, `SMTP_HOST`, `SMTP_PORT` so a `.env` copied verbatim from `.env.example` (with its localhost defaults) works unchanged inside the container network.
+
+Booting with `APP_ENV=production` runs a strict validator that refuses placeholder secrets, `SKIP_CAPTCHA`, default DB/RabbitMQ credentials, non-HTTPS `BASE_URL`, or missing `CORS_ORIGINS`. `DEMO_MODE=true` relaxes exactly one thing for public demos — Stripe test keys are accepted — and in exchange requires `ADMIN_PASSWORD`.
 
 ## Project layout
 
@@ -349,16 +343,23 @@ internal/
   payments/             Stripe intents, webhook, refunder, event publisher
   notifications/        consumer that turns payment events into emails
   messaging/            RabbitMQ connection, publisher, consumer, topology
-  mailer/               SMTP sender (Mailhog-compatible)
+  mailer/               SMTP sender (Mailhog / Brevo / any provider)
   crypto/               AES-256-GCM encryptor for order PII
   activity/  recommend/ event log + cart-aware recommendation service
-  middleware/           auth, admin role, optional auth, guest session
-  config/               env loading
+  metrics/              Prometheus instrumentation (HTTP/DB/business/security)
+  seed/                 demo + backdated historical data seeders
+  middleware/           auth, admin role, optional auth, guest session, metrics, access log
+  config/               env loading + production/demo validation
   ctxkey/  response/    shared context keys + JSON response helpers
-migrations/             25 migrations + seed.sql
+cmd/seedhistory/        backdated data generator for the business dashboards
+migrations/             39 migrations + seed.sql
+observability/          Prometheus, Loki, Promtail configs + Grafana provisioning & dashboards
+loadtest/               k6 scenarios (load.js, stress.js, hostile.js) + REPORT.md
 web/                    React 19 + TypeScript + Vite + Tailwind v4 storefront
-docs/erd.mmd            full entity-relationship diagram
+deploy/Caddyfile        TLS-terminating reverse proxy for server deployments
+docs/                   ERD, security, scaling, CI/CD, observability, deploy checklist
 Dockerfile              multi-stage: node → golang → alpine
-docker-compose.yml      full stack: db + migrate + seed + rabbitmq + mailhog + api
+docker-compose.yml      full stack + optional monitoring profile
+docker-compose.prod.yml server overlay: Caddy + no public service ports
 Makefile                dev commands
 ```

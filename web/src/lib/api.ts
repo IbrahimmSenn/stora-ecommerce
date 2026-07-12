@@ -585,6 +585,7 @@ export const api = {
   cancelOrder: (id: string) =>
     request<OrderResponse>(`/api/v1/orders/${id}/cancel`, { method: 'POST' }),
   getStripeConfig: () => request<StripeConfig>('/api/v1/config/stripe'),
+  getDemoConfig: () => request<{ demo: boolean }>('/api/v1/config/demo'),
   createPaymentIntent: (orderId: string) =>
     request<CreateIntentResponse>(`/api/v1/orders/${orderId}/payment-intent`, {
       method: 'POST',

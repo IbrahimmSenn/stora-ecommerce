@@ -1,7 +1,7 @@
 # Overlay for running a prebuilt image instead of building locally. Used by
 # scripts/deploy.sh and the CI delivery stage:
 #
-#   API_IMAGE=ghcr.io/<owner>/iloveshopping:<sha> \
+#   API_IMAGE=ghcr.io/<owner>/stora-ecommerce:<sha> \
 #     docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d --no-build
 services:
   api:

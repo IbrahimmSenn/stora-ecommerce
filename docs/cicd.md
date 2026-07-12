@@ -2,16 +2,16 @@
 
 Single pipeline in [`.github/workflows/pipeline.yml`](../.github/workflows/pipeline.yml),
 triggered by every push to `main` (and the `integrator` working branch) plus pull
-requests into `main`. Four stages run in sequence; any failure halts the pipeline
+requests into `main`. Five stages run in sequence; any failure halts the pipeline
 before the next stage.
 
 ```
-┌──────────────────────┐   ┌───────────────────┐   ┌───────────────┐   ┌──────────────────┐
-│ 1 Build & Test       │   │ 2 Security Scan   │   │ 3 Migrations  │   │ 4 Core Delivery  │
-│ backend-test         │──▶│ security-code     │──▶│ up from zero  │──▶│ deploy ephemeral │
-│ frontend-test        │   │ security-secrets  │   │ down 1 / up 1 │   │ smoke tests      │
-│ docker-build (+test) │   │ security-image    │   │ seed applies  │   │ publish to GHCR  │
-└──────────────────────┘   └───────────────────┘   └───────────────┘   └──────────────────┘
+┌──────────────────────┐   ┌───────────────────┐   ┌───────────────┐   ┌──────────────────┐   ┌─────────────────┐
+│ 1 Build & Test       │   │ 2 Security Scan   │   │ 3 Migrations  │   │ 4 Core Delivery  │   │ 5 Deploy (main) │
+│ backend-test         │──▶│ security-code     │──▶│ up from zero  │──▶│ deploy ephemeral │──▶│ ssh to server   │
+│ frontend-test        │   │ security-secrets  │   │ down 1 / up 1 │   │ smoke tests      │   │ deploy.sh image │
+│ docker-build (+test) │   │ security-image    │   │ seed applies  │   │ publish to GHCR  │   │ smoke on live   │
+└──────────────────────┘   └───────────────────┘   └───────────────┘   └──────────────────┘   └─────────────────┘
 ```
 
 ## Stage 1 — Build & Test
@@ -82,7 +82,20 @@ Runs on pushes only (not PRs). The job:
 5. On failure the job dumps service logs and tears the environment down; the
    image is **not** published.
 
-### Deploying to a real host
+## Stage 5 — Production Deploy
+
+Runs only on pushes to `main`, after delivery publishes the image. The job
+SSHes to the server (`DEPLOY_HOST`/`DEPLOY_USER`/`DEPLOY_SSH_KEY` repository
+secrets), pulls the repo, and runs the same
+[`scripts/deploy.sh`](../scripts/deploy.sh) with the GHCR image for the exact
+commit that passed all previous stages. The server's own `.env` selects the
+production compose overlay (`COMPOSE_FILE=...:docker-compose.prod.yml`) and
+points the post-deploy smoke tests at the public URL (`SMOKE_URL`). While the
+secrets are unset the job skips gracefully, so the pipeline stays green on
+forks and before a server exists. Full server setup:
+[deploy-checklist.md](deploy-checklist.md).
+
+### Deploying to any other host
 
 The delivery scripts are host-agnostic — anything with Docker Compose:
 
@@ -90,10 +103,6 @@ The delivery scripts are host-agnostic — anything with Docker Compose:
 cp .env.example .env    # fill in real values (once per host)
 scripts/deploy.sh ghcr.io/<owner>/<repo>:<sha>
 ```
-
-To point the pipeline at a persistent server later: add a self-hosted runner on
-that machine (or an SSH step) and run the same `deploy.sh` — nothing else
-changes.
 
 ### Rollback
 
@@ -119,7 +128,7 @@ deploy.
    `sk_live_...` string to any tracked file, push: `security-secrets` fails and
    halts the pipeline before migration/delivery.
 4. **Happy path** — revert both, add a schema change (e.g. a new index
-   migration `000037_*.up.sql`/`.down.sql`), push: all four stages pass, the
+   migration `000037_*.up.sql`/`.down.sql`), push: all stages pass, the
    migration is validated (up from zero + down/up), the image is published.
 5. **Rollback** — `scripts/rollback.sh <previous-image> [backup.sql]`, then
    `scripts/smoke.sh` confirms the previous version serves traffic and the

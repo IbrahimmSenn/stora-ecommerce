@@ -1,0 +1,7 @@
+# Public entrypoint for server deployments. Caddy terminates TLS (automatic
+# Let's Encrypt for $DOMAIN) and proxies everything to the api container, which
+# serves both the SPA and the API on plain HTTP inside the compose network.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy api:8080
+}

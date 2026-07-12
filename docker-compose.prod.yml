@@ -1,0 +1,73 @@
+# Server deployment overlay. Layered on top of the base file and the deploy
+# overlay via COMPOSE_FILE in the server's .env:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.deploy.yml:docker-compose.prod.yml
+#
+# What it changes:
+#   - Caddy in front: terminates TLS with a real Let's Encrypt cert for $DOMAIN
+#     and proxies to api:8080. The api's own self-signed TLS listener is off.
+#   - No service ports published on the host except Caddy's 80/443 — Postgres,
+#     RabbitMQ, Mailhog and the api are only reachable inside the compose
+#     network. This also makes X-Forwarded-For trustworthy: only Caddy can set
+#     it, so the RealIP middleware and per-IP rate limits see real client IPs.
+#   - Grafana/Prometheus (monitoring profile) bind to 127.0.0.1 — access via
+#     SSH tunnel, e.g. `ssh -L 3001:localhost:3001 <server>`.
+#   - Real RabbitMQ credentials and SMTP provider from .env (the base file
+#     hardcodes guest:guest and Mailhog at service level, which would otherwise
+#     win over .env).
+#
+# Requires Docker Compose >= 2.24.4 (the !override tag).
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the public hostname (e.g. shop.example.com)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  api:
+    ports: !override []
+    environment:
+      TLS_ENABLED: "false"
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+
+  db:
+    restart: unless-stopped
+    ports: !override []
+
+  rabbitmq:
+    restart: unless-stopped
+    ports: !override []
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?}
+
+  mailhog:
+    ports: !override []
+
+  grafana:
+    ports: !override
+      - "127.0.0.1:3001:3000"
+
+  prometheus:
+    ports: !override
+      - "127.0.0.1:9090:9090"
+
+volumes:
+  caddy_data:
+  caddy_config:

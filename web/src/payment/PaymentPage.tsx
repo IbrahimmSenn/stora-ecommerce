@@ -13,6 +13,7 @@ import type { OrderResponse } from '../lib/api'
 import { Page } from '../components/Page'
 import { Masthead } from '../components/Masthead'
 import { useTheme } from '../lib/theme'
+import { useDemoMode } from '../lib/useDemoMode'
 import { getStripe, stripeAppearance } from './stripe'
 import { mapPaymentError, mapStripeError } from './errors'
 
@@ -20,6 +21,7 @@ export function PaymentPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { theme } = useTheme()
+  const demoMode = useDemoMode()
 
   const [order, setOrder] = useState<OrderResponse | null>(null)
   const [clientSecret, setClientSecret] = useState<string | null>(null)
@@ -159,7 +161,7 @@ export function PaymentPage() {
               </dd>
             </div>
           </dl>
-          {import.meta.env.DEV && (
+          {(import.meta.env.DEV || demoMode) && (
             <p className="mt-6 text-xs text-ink-faint leading-relaxed">
               Stripe test card{' '}
               <span className="tnum text-ink-soft">4242 4242 4242 4242</span>, any

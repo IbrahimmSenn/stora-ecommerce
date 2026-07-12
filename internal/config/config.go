@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -58,6 +59,13 @@ type Config struct {
 	// AppEnv is the raw APP_ENV value ("production" enables stricter checks).
 	AppEnv string
 
+	// DemoMode marks a public portfolio deployment: production-strict security,
+	// but Stripe stays in test mode and the demo catalogue/users are seeded.
+	// Requires ADMIN_PASSWORD so the seeded admin never keeps the known dev
+	// password on a public host.
+	DemoMode      bool
+	AdminPassword string
+
 	// UploadDir is where uploaded product images + generated variants are
 	// written; served under /media. Defaults to ./uploads.
 	UploadDir string
@@ -93,6 +101,20 @@ type Config struct {
 	// and cache). Set it to share rate-limit state and the read cache across
 	// multiple app instances behind a load balancer.
 	RedisURL string
+
+	// MetricsAddr is the internal listener serving /metrics for Prometheus.
+	// Not published outside the compose network.
+	MetricsAddr string
+
+	// LogFormat overrides the APP_ENV-derived log handler: "json" or "text".
+	// Empty keeps the default (JSON in production, text otherwise).
+	LogFormat string
+
+	// OTelEnabled turns on distributed tracing (spans exported over OTLP/HTTP
+	// to OTelEndpoint — Tempo in the monitoring profile). Off by default; the
+	// app runs identically with a no-op tracer.
+	OTelEnabled  bool
+	OTelEndpoint string
 }
 
 func Load() (*Config, error) {
@@ -129,9 +151,11 @@ func Load() (*Config, error) {
 		NominatimBaseURL:   os.Getenv("NOMINATIM_BASE_URL"),
 		NominatimUserAgent: os.Getenv("NOMINATIM_USER_AGENT"),
 
-		AppEnv:       os.Getenv("APP_ENV"),
-		UploadDir:    os.Getenv("UPLOAD_DIR"),
-		CookieSecure: os.Getenv("APP_ENV") == "production",
+		AppEnv:        os.Getenv("APP_ENV"),
+		DemoMode:      os.Getenv("DEMO_MODE") == "true",
+		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+		UploadDir:     os.Getenv("UPLOAD_DIR"),
+		CookieSecure:  os.Getenv("APP_ENV") == "production",
 
 		TLSEnabled:  os.Getenv("TLS_ENABLED") == "true",
 		TLSPort:     os.Getenv("TLS_PORT"),
@@ -149,6 +173,12 @@ func Load() (*Config, error) {
 		DBMaxConnIdleTime: time.Duration(envInt("DB_MAX_CONN_IDLE_MIN", 5)) * time.Minute,
 
 		RedisURL: os.Getenv("REDIS_URL"),
+
+		MetricsAddr: os.Getenv("METRICS_ADDR"),
+		LogFormat:   os.Getenv("LOG_FORMAT"),
+
+		OTelEnabled:  os.Getenv("OTEL_ENABLED") == "true",
+		OTelEndpoint: os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 	}
 
 	// CORS origins: explicit allow-list. Defaults to the local dev origins so
@@ -170,7 +200,7 @@ func Load() (*Config, error) {
 	}
 
 	if cfg.NominatimUserAgent == "" {
-		cfg.NominatimUserAgent = "i-love-shopping/2.0 (+https://gitea.kood.tech/ibrahimsen/i-love-shopping)"
+		cfg.NominatimUserAgent = "stora/1.0 (+https://github.com/IbrahimmSenn/stora-ecommerce)"
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -228,6 +258,14 @@ func Load() (*Config, error) {
 		cfg.SMTPPort = "587"
 	}
 
+	if cfg.MetricsAddr == "" {
+		cfg.MetricsAddr = ":9091"
+	}
+
+	if cfg.OTelEndpoint == "" {
+		cfg.OTelEndpoint = "http://tempo:4318" // compose service; only used when OTEL_ENABLED=true
+	}
+
 	if cfg.SMTPFrom == "" && cfg.SMTPUser != "" {
 		cfg.SMTPFrom = cfg.SMTPUser
 	}
@@ -259,36 +297,84 @@ const (
 
 // validateForProduction fails fast on insecure settings when APP_ENV=production.
 // In any other environment these are warnings at most, so local dev is never
-// blocked. corsExplicit is the raw CORS_ORIGINS value (empty = using defaults).
+// blocked. All failures are collected and returned together so the operator can
+// fix the whole .env in one pass. corsExplicit is the raw CORS_ORIGINS value
+// (empty = using defaults).
 func (c *Config) validateForProduction(corsExplicit string) error {
 	if c.AppEnv != "production" {
 		return nil
 	}
+	var errs []error
 	if c.SkipCaptcha {
-		return fmt.Errorf("SKIP_CAPTCHA must not be true in production")
+		errs = append(errs, fmt.Errorf("SKIP_CAPTCHA must not be true in production"))
 	}
 	if len(c.JWTSecret) < 32 {
-		return fmt.Errorf("JWT_SECRET must be at least 32 chars in production (got %d)", len(c.JWTSecret))
+		errs = append(errs, fmt.Errorf("JWT_SECRET must be at least 32 chars in production (got %d)", len(c.JWTSecret)))
 	}
 	if c.JWTSecret == placeholderJWTSecret {
-		return fmt.Errorf("JWT_SECRET is still the .env.example placeholder — generate one with: openssl rand -hex 32")
+		errs = append(errs, fmt.Errorf("JWT_SECRET is still the .env.example placeholder — generate one with: openssl rand -hex 32"))
 	}
 	if c.EncryptionKey == devEncryptionKey {
-		return fmt.Errorf("ENCRYPTION_KEY is still the all-zero dev key from .env.example — generate one with: openssl rand -hex 32")
+		errs = append(errs, fmt.Errorf("ENCRYPTION_KEY is still the all-zero dev key from .env.example — generate one with: openssl rand -hex 32"))
 	}
 	if !strings.HasPrefix(c.BaseURL, "https://") {
-		return fmt.Errorf("BASE_URL must be https:// in production")
+		errs = append(errs, fmt.Errorf("BASE_URL must be https:// in production"))
 	}
 	if corsExplicit == "" {
-		return fmt.Errorf("CORS_ORIGINS must be set to your frontend origin(s) in production")
+		errs = append(errs, fmt.Errorf("CORS_ORIGINS must be set to your frontend origin(s) in production"))
 	}
 	if strings.Contains(c.RabbitMQURL, "guest:guest@") {
-		return fmt.Errorf("RABBITMQ_URL must not use the default guest:guest credentials in production")
+		errs = append(errs, fmt.Errorf("RABBITMQ_URL must not use the default guest:guest credentials in production"))
 	}
-	if strings.Contains(c.DatabaseURL, ":secret@") || strings.Contains(c.DatabaseURL, "sslmode=disable") {
-		return fmt.Errorf("DATABASE_URL must use non-default credentials and sslmode=require in production")
+	if strings.Contains(c.DatabaseURL, ":secret@") {
+		errs = append(errs, fmt.Errorf("DATABASE_URL must not use the default dev password in production"))
 	}
-	return nil
+	// Postgres runs on the private compose network in demo deployments, where
+	// the alpine image has no TLS — only full production requires sslmode.
+	if !c.DemoMode && strings.Contains(c.DatabaseURL, "sslmode=disable") {
+		errs = append(errs, fmt.Errorf("DATABASE_URL must use sslmode=require in production"))
+	}
+	// Live-mode Stripe keys are sk_live_/rk_live_ (restricted) and pk_live_.
+	// Test-mode keys or the CI placeholders (sk_test_x etc.) in production mean
+	// the shop looks deployed but can never take a real payment. DEMO_MODE
+	// deliberately runs Stripe in test mode, so real test keys are accepted;
+	// the webhook secret must still be a dashboard-configured whsec_ either way.
+	if c.DemoMode {
+		if !hasStripeKey(c.StripeSecretKey, "sk_live_", "rk_live_", "sk_test_", "rk_test_") {
+			errs = append(errs, fmt.Errorf("STRIPE_SECRET_KEY must be a real Stripe key (sk_test_/sk_live_) in demo mode, got a placeholder"))
+		}
+		if !hasStripeKey(c.StripePublishableKey, "pk_live_", "pk_test_") {
+			errs = append(errs, fmt.Errorf("STRIPE_PUBLISHABLE_KEY must be a real Stripe key (pk_test_/pk_live_) in demo mode, got a placeholder"))
+		}
+		if c.AdminPassword == "" {
+			errs = append(errs, fmt.Errorf("ADMIN_PASSWORD is required in demo mode — the seeded admin must not keep the dev password on a public host"))
+		} else if len(c.AdminPassword) < 12 {
+			// Also rules out the publicly-known dev password admin123.
+			errs = append(errs, fmt.Errorf("ADMIN_PASSWORD must be at least 12 chars in demo mode (got %d)", len(c.AdminPassword)))
+		}
+	} else {
+		if !strings.HasPrefix(c.StripeSecretKey, "sk_live_") && !strings.HasPrefix(c.StripeSecretKey, "rk_live_") {
+			errs = append(errs, fmt.Errorf("STRIPE_SECRET_KEY must be a live-mode key (sk_live_/rk_live_) in production, got a test or placeholder key"))
+		}
+		if !strings.HasPrefix(c.StripePublishableKey, "pk_live_") {
+			errs = append(errs, fmt.Errorf("STRIPE_PUBLISHABLE_KEY must be a live-mode key (pk_live_) in production, got a test or placeholder key"))
+		}
+	}
+	if !strings.HasPrefix(c.StripeWebhookSecret, "whsec_") || len(c.StripeWebhookSecret) < 20 {
+		errs = append(errs, fmt.Errorf("STRIPE_WEBHOOK_SECRET must be a real whsec_ signing secret in production (from the dashboard webhook endpoint, not `stripe listen`)"))
+	}
+	return errors.Join(errs...)
+}
+
+// hasStripeKey reports whether key starts with one of the given prefixes and
+// carries a real key body after it (filters CI placeholders like "sk_test_x").
+func hasStripeKey(key string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(key, p) && len(key) >= len(p)+16 {
+			return true
+		}
+	}
+	return false
 }
 
 func envFloat(key string, def float64) float64 {

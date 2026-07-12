@@ -36,7 +36,11 @@ type demoReview struct {
 // Demo seeds demo users + reviews. Idempotent (ON CONFLICT DO NOTHING). Best
 // effort: a single failing row (e.g. a missing product FK in host-only dev) is
 // logged and skipped rather than aborting startup.
-func Demo(ctx context.Context, db *pgxpool.Pool, enc *crypto.Encryptor) {
+//
+// adminHash, when non-empty, replaces the admin account's bcrypt hash (upsert,
+// keyed on the fixed seed id) — public demo deployments set ADMIN_PASSWORD so
+// the well-known dev password never works on a reachable host.
+func Demo(ctx context.Context, db *pgxpool.Pool, enc *crypto.Encryptor, adminHash string) {
 	for _, u := range demoUsers {
 		email := strings.ToLower(strings.TrimSpace(u.email))
 		encEmail, err := enc.Encrypt(email)
@@ -44,10 +48,15 @@ func Demo(ctx context.Context, db *pgxpool.Pool, enc *crypto.Encryptor) {
 			log.Printf("seed: encrypt %s: %v", u.email, err)
 			continue
 		}
+		hash, conflict := u.hash, `ON CONFLICT DO NOTHING`
+		if u.role == "admin" && adminHash != "" {
+			hash = adminHash
+			conflict = `ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash`
+		}
 		if _, err := db.Exec(ctx,
 			`INSERT INTO users (id, email_encrypted, email_hmac, password_hash, role)
-			 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-			u.id, encEmail, enc.HMAC(email), u.hash, u.role); err != nil {
+			 VALUES ($1, $2, $3, $4, $5) `+conflict,
+			u.id, encEmail, enc.HMAC(email), hash, u.role); err != nil {
 			log.Printf("seed: user %s: %v", u.email, err)
 		}
 	}

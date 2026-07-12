@@ -148,7 +148,7 @@ async function main() {
   // Emit seed.sql
   const out = []
   out.push('-- Seed data — realistic catalogue generated from DummyJSON (scripts/gen-seed.mjs).')
-  out.push('-- admin@shop.com / admin123  ·  customer@shop.com / customer123  ·  test3@test.com / test123')
+  out.push('-- Dev logins: admin@shop.com / admin123 (ADMIN_PASSWORD overrides it in demo deployments) · customer@shop.com / customer123 · test3@test.com / test123')
   out.push('--')
   out.push('-- NOTE: demo users + their reviews are seeded by the application at startup')
   out.push('-- (internal/seed) because user email is AES-GCM encrypted at rest. This file')

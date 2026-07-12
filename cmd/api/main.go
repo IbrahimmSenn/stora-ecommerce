@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/stripe/stripe-go/v76"
+	"golang.org/x/crypto/bcrypt"
 
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/address"
@@ -40,6 +41,7 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/imageproc"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/messaging"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/metrics"
 	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/notifications"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/oauth"
@@ -52,6 +54,8 @@ import (
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/seed"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/seo"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/tlsutil"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/tracing"
+	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/vitals"
 	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
 )
 
@@ -61,7 +65,27 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	setupLogging(cfg.AppEnv)
+	setupLogging(cfg.AppEnv, cfg.LogFormat)
+
+	// Distributed tracing (OTLP -> Tempo). No-op unless OTEL_ENABLED=true.
+	shutdownTracing, err := tracing.Setup(context.Background(), cfg.OTelEnabled, cfg.OTelEndpoint)
+	if err != nil {
+		log.Fatalf("tracing setup: %v", err)
+	}
+	if cfg.OTelEnabled {
+		log.Printf("tracing enabled (OTLP -> %s)", cfg.OTelEndpoint)
+	}
+
+	// Prometheus registry + the Recorder services use for domain counters.
+	// Served on the internal metrics listener, scraped by the monitoring stack.
+	promReg := metrics.NewRegistry()
+	rec := metrics.NewProm(promReg)
+	httpMetrics := metrics.NewHTTPMetrics(promReg)
+	if cfg.OTelEnabled {
+		// Latency histogram samples carry the trace ID as an exemplar so
+		// Grafana can jump from a latency spike to the exact trace.
+		httpMetrics.ExemplarFn = tracing.ExemplarTraceID
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -75,12 +99,16 @@ func main() {
 	poolCfg.MaxConnLifetime = cfg.DBMaxConnLifetime
 	poolCfg.MaxConnIdleTime = cfg.DBMaxConnIdleTime
 	poolCfg.HealthCheckPeriod = time.Minute
+	// pgx takes one tracer; WithPgxTracing composes the Prometheus tracer
+	// with OTel query spans when tracing is on.
+	poolCfg.ConnConfig.Tracer = tracing.WithPgxTracing(metrics.NewQueryTracer(promReg), cfg.OTelEnabled)
 
 	db, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
 	}
 	defer db.Close()
+	promReg.MustRegister(metrics.NewPoolStatsCollector(db))
 
 	if err := db.Ping(ctx); err != nil {
 		log.Fatalf("ping database: %v", err)
@@ -125,9 +153,18 @@ func main() {
 
 	// Demo users (encrypted email) + their reviews are seeded by the app outside
 	// production, since AES-GCM email ciphertext can't be produced in seed.sql.
-	if cfg.AppEnv != "production" {
+	// DEMO_MODE deployments also seed, with the admin password from env.
+	if cfg.AppEnv != "production" || cfg.DemoMode {
+		adminHash := ""
+		if cfg.AdminPassword != "" {
+			h, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), cfg.BcryptCost)
+			if err != nil {
+				log.Fatalf("hash ADMIN_PASSWORD: %v", err)
+			}
+			adminHash = string(h)
+		}
 		seedCtx, seedCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		seed.Demo(seedCtx, db, encryptor)
+		seed.Demo(seedCtx, db, encryptor, adminHash)
 		seedCancel()
 	}
 
@@ -165,6 +202,7 @@ func main() {
 		auth.WithMailer(mail),
 		auth.WithBaseURL(cfg.BaseURL),
 		auth.WithBcryptCost(cfg.BcryptCost),
+		auth.WithMetrics(rec),
 	)
 	authHandler := auth.NewHandler(authService, cfg.CookieSecure)
 
@@ -241,7 +279,8 @@ func main() {
 	log.Printf("address verification: nominatim at %s", cfg.NominatimBaseURL)
 
 	ordersRepo := orders.NewRepository(db)
-	ordersService := orders.NewService(ordersRepo, cartService, encryptor, geocoder, refunder, reconciler, deliveryService)
+	ordersService := orders.NewService(ordersRepo, cartService, encryptor, geocoder, refunder, reconciler, deliveryService,
+		orders.WithMetrics(rec), orders.WithActivityLogger(activityService))
 	ordersHandler := orders.NewHandler(ordersService)
 
 	paymentsRepo := payments.NewRepository(db, encryptor)
@@ -250,6 +289,7 @@ func main() {
 		payments.NewStripeClient(),
 		payments.NewStripeRefundClient(),
 		cfg.StripeWebhookSecret, cfg.StripePublishableKey,
+		payments.WithMetrics(rec),
 	)
 	paymentsHandler := payments.NewHandler(paymentsService)
 
@@ -333,9 +373,16 @@ func main() {
 
 	r := chi.NewRouter()
 
+	// tracing outermost so every later stage (metrics exemplars, access log
+	// trace_id, handlers, pgx spans) sees the span context; httpMetrics next
+	// so it times the full middleware stack; AccessLog replaces chi's
+	// plain-text Logger with slog (JSON under LOG_FORMAT=json, which is what
+	// Promtail ships to Loki).
+	r.Use(tracing.Middleware)
+	r.Use(httpMetrics.Middleware)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	r.Use(mw.AccessLog)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 	// HSTS only in production (behind real HTTPS) — sending it over the dev
@@ -367,6 +414,8 @@ func main() {
 		generalLimiter = mw.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
 		authLimiter = mw.NewRateLimiter(cfg.AuthRateLimitRPS, cfg.AuthRateLimitBurst)
 	}
+	generalLimiter.Instrument("general", func() { rec.RateLimited("general") })
+	authLimiter.Instrument("auth", func() { rec.RateLimited("auth") })
 	r.Use(mw.ScopePath(generalLimiter.Middleware, "/api/", "/api/v1/webhooks/stripe"))
 
 	// --- Frontend (React SPA built into web/dist) ---
@@ -385,9 +434,19 @@ func main() {
 		response.JSON(w, http.StatusOK, map[string]string{"site_key": siteKey})
 	})
 
+	// Core Web Vitals beacons from the SPA -> Prometheus histograms. Under
+	// /api/ so the general rate limiter covers it.
+	r.Post("/api/v1/vitals", vitals.Handler(metrics.NewWebVitals(promReg)))
+
 	// Expose Stripe publishable key to frontend (public, non-secret)
 	r.Get("/api/v1/config/stripe", func(w http.ResponseWriter, r *http.Request) {
 		response.JSON(w, http.StatusOK, map[string]string{"publishable_key": cfg.StripePublishableKey})
+	})
+
+	// Whether this deployment is a public demo — the SPA shows the demo banner
+	// (test card + demo login) when true.
+	r.Get("/api/v1/config/demo", func(w http.ResponseWriter, r *http.Request) {
+		response.JSON(w, http.StatusOK, map[string]bool{"demo": cfg.DemoMode})
 	})
 
 	// Liveness: process is up. Kept dependency-free so restarts don't cascade.
@@ -645,6 +704,23 @@ func main() {
 		MaxHeaderBytes:    1 << 20, // 1 MB
 	}
 
+	// Internal metrics listener. Deliberately a separate server: the port is
+	// never published to the host, so /metrics is reachable only from inside
+	// the compose network (Prometheus scrapes api:9091).
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", metrics.Handler(promReg))
+	metricsSrv := &http.Server{
+		Addr:              cfg.MetricsAddr,
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		log.Printf("metrics listener on %s", cfg.MetricsAddr)
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("metrics server error: %v", err)
+		}
+	}()
+
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -702,8 +778,17 @@ func main() {
 		}
 	}
 
+	if err := metricsSrv.Shutdown(timeoutCtx); err != nil {
+		log.Printf("metrics server shutdown error: %v", err)
+	}
+
 	if err := srv.Shutdown(timeoutCtx); err != nil {
 		log.Fatalf("server shutdown error: %v", err)
+	}
+
+	// Flush buffered spans last, after all request traffic has drained.
+	if err := shutdownTracing(timeoutCtx); err != nil {
+		log.Printf("tracing shutdown error: %v", err)
 	}
 
 	log.Println("server stopped")
@@ -717,18 +802,26 @@ func main() {
 // rejected — http.ServeFile would already block traversal, but failing early
 // keeps the logic obvious.
 // setupLogging installs a slog default handler: JSON in production (for log
-// aggregators), human-readable text otherwise. Level comes from LOG_LEVEL
-// (debug|info|warn|error, default info). slog.SetDefault also reroutes the
-// stdlib log package, so existing log.Printf calls get level + timestamp
-// structure without touching every call site.
-func setupLogging(appEnv string) {
+// aggregators), human-readable text otherwise. LOG_FORMAT=json|text overrides
+// that default — the compose stack sets json so Promtail/Loki can parse dev
+// logs too. Level comes from LOG_LEVEL (debug|info|warn|error, default info).
+// slog.SetDefault also reroutes the stdlib log package, so existing log.Printf
+// calls get level + timestamp structure without touching every call site.
+func setupLogging(appEnv, format string) {
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(os.Getenv("LOG_LEVEL"))); err != nil {
 		level = slog.LevelInfo
 	}
 	opts := &slog.HandlerOptions{Level: level}
+	useJSON := appEnv == "production"
+	switch format {
+	case "json":
+		useJSON = true
+	case "text":
+		useJSON = false
+	}
 	var handler slog.Handler
-	if appEnv == "production" {
+	if useJSON {
 		handler = slog.NewJSONHandler(os.Stdout, opts)
 	} else {
 		handler = slog.NewTextHandler(os.Stdout, opts)
