@@ -61,20 +61,55 @@ func (s *service) AdminUpdateStatus(ctx context.Context, id uuid.UUID, status st
 		return nil, ErrInvalidStatus
 	}
 
-	// Cancellation of an already-paid order must go through the refund flow so
-	// the charge is reversed and stock restocked — block the silent edit.
+	row, _, _, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
 	if status == StatusCancelled {
-		row, _, _, err := s.repo.GetByID(ctx, id)
+		// Any order past pending_payment has been charged (paid/processing/
+		// shipped/delivered) — cancelling it must reverse the charge and restock
+		// via AdminRefund, never a bare status edit. Only an unpaid order can be
+		// plainly cancelled here, and that still releases its reserved stock.
+		if row.Status != StatusPendingPayment {
+			return nil, ErrNotCancellable
+		}
+		items, err := s.repo.ItemsForRestock(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if row.Status == StatusPaid {
-			return nil, ErrNotCancellable
+		err = s.repo.WithTx(ctx, func(tx TxRepo) error {
+			ok, err := tx.TransitionStatus(ctx, id, StatusPendingPayment, StatusCancelled)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return ErrNotCancellable
+			}
+			for _, it := range items {
+				if it.ProductID == nil {
+					continue
+				}
+				if err := tx.IncrementStock(ctx, *it.ProductID, it.Quantity); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
+		return s.LoadByID(ctx, id)
 	}
 
-	if err := s.repo.UpdateStatus(ctx, id, status); err != nil {
+	// Forward shipping states: atomic transition from the current status so two
+	// admins can't race the same order into an inconsistent state.
+	ok, err := s.repo.TransitionStatus(ctx, id, row.Status, status)
+	if err != nil {
 		return nil, err
+	}
+	if !ok {
+		return nil, ErrInvalidStatus
 	}
 	return s.LoadByID(ctx, id)
 }
@@ -102,6 +137,14 @@ func (s *service) AdminRefund(ctx context.Context, id uuid.UUID) (*OrderResponse
 		return nil, err
 	}
 	err = s.repo.WithTx(ctx, func(tx TxRepo) error {
+		ok, err := tx.TransitionStatus(ctx, id, row.Status, StatusRefunded)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			// Already moved (e.g. a concurrent refund) — don't restock twice.
+			return ErrNotRefundable
+		}
 		for _, it := range items {
 			if it.ProductID == nil {
 				continue
@@ -110,7 +153,7 @@ func (s *service) AdminRefund(ctx context.Context, id uuid.UUID) (*OrderResponse
 				return err
 			}
 		}
-		return tx.UpdateStatus(ctx, id, StatusRefunded)
+		return nil
 	})
 	if err != nil {
 		return nil, err

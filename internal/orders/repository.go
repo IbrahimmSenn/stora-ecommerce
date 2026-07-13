@@ -35,6 +35,10 @@ type TxRepo interface {
 	CreateOrderItem(ctx context.Context, item *OrderItem) error
 	CreateShippingAddress(ctx context.Context, orderID uuid.UUID, addr *addressRow) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	// TransitionStatus flips status from->to atomically, returning true only if
+	// this call is the one that made the change. Callers gate restock/refund
+	// side effects on the result so concurrent transitions can't double-apply.
+	TransitionStatus(ctx context.Context, id uuid.UUID, from, to string) (bool, error)
 }
 
 type Repository interface {
@@ -46,7 +50,14 @@ type Repository interface {
 	ListByGuest(ctx context.Context, guestSessionID uuid.UUID, status string, from, to *time.Time) ([]OrderSummary, error)
 	ListAll(ctx context.Context, status string, from, to *time.Time, limit, offset int) ([]adminOrderRow, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	// TransitionStatus is the non-transactional compare-and-set, used where no
+	// stock change accompanies the transition (e.g. MarkPaid).
+	TransitionStatus(ctx context.Context, id uuid.UUID, from, to string) (bool, error)
 	ItemsForRestock(ctx context.Context, orderID uuid.UUID) ([]OrderItem, error)
+	// StalePendingOrders returns ids of orders stuck in pending_payment since
+	// before the cutoff. Used by the checkout-expiry reaper to release the stock
+	// reserved by abandoned checkouts.
+	StalePendingOrders(ctx context.Context, olderThan time.Time, limit int) ([]uuid.UUID, error)
 }
 
 type postgresRepository struct {
@@ -321,6 +332,35 @@ func (r *postgresRepository) UpdateStatus(ctx context.Context, id uuid.UUID, sta
 	return nil
 }
 
+func (r *postgresRepository) TransitionStatus(ctx context.Context, id uuid.UUID, from, to string) (bool, error) {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE orders SET status = $3, updated_at = NOW() WHERE id = $1 AND status = $2`, id, from, to)
+	if err != nil {
+		return false, fmt.Errorf("transition order status: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+func (r *postgresRepository) StalePendingOrders(ctx context.Context, olderThan time.Time, limit int) ([]uuid.UUID, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id FROM orders WHERE status = $1 AND created_at < $2 ORDER BY created_at LIMIT $3`,
+		StatusPendingPayment, olderThan, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query stale pending orders: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan stale order id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (r *postgresRepository) ItemsForRestock(ctx context.Context, orderID uuid.UUID) ([]OrderItem, error) {
 	rows, err := r.db.Query(ctx,
 		`SELECT id, order_id, product_id, product_name, unit_price_cents, quantity, created_at
@@ -459,6 +499,15 @@ func (t *pgTx) UpdateStatus(ctx context.Context, id uuid.UUID, status string) er
 		return ErrOrderNotFound
 	}
 	return nil
+}
+
+func (t *pgTx) TransitionStatus(ctx context.Context, id uuid.UUID, from, to string) (bool, error) {
+	tag, err := t.tx.Exec(ctx,
+		`UPDATE orders SET status = $3, updated_at = NOW() WHERE id = $1 AND status = $2`, id, from, to)
+	if err != nil {
+		return false, fmt.Errorf("transition order status: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // generateOrderNumber returns a 17-char human-friendly id like ORD-K7H4Z2QF8M3.

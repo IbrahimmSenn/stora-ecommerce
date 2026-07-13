@@ -329,13 +329,20 @@ func (s *service) onIntentFailed(ctx context.Context, raw json.RawMessage) error
 }
 
 // applySucceeded runs the side effects for a payment transitioning to
-// "succeeded": flip the payment row, mark the order paid, publish the event.
-// Caller is responsible for the idempotency check.
+// "succeeded". Caller is responsible for the idempotency check.
+//
+// Order matters: mark the order paid FIRST, flip the payment row LAST. The
+// payment row's succeeded status is the idempotency key checked by both the
+// webhook handler and Reconcile, so it must only be set once everything else is
+// durably done. If MarkPaid succeeds but UpdateSucceeded fails, the guard stays
+// open and the next webhook retry (or a Reconcile) re-runs both — MarkPaid is a
+// no-op the second time. This closes the "charged order stuck in
+// pending_payment forever" hole where the two writes were transposed.
 func (s *service) applySucceeded(ctx context.Context, existing *Payment) error {
-	if err := s.repo.UpdateSucceeded(ctx, existing.StripePaymentIntentID); err != nil {
+	if err := s.orders.MarkPaid(ctx, existing.OrderID); err != nil {
 		return err
 	}
-	if err := s.orders.MarkPaid(ctx, existing.OrderID); err != nil {
+	if err := s.repo.UpdateSucceeded(ctx, existing.StripePaymentIntentID); err != nil {
 		return err
 	}
 	s.metrics.PaymentSucceeded()

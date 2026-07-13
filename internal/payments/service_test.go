@@ -521,6 +521,9 @@ func (s *stubOrders) MarkPaymentFailed(_ context.Context, _ uuid.UUID) error {
 	s.statusCalls = append(s.statusCalls, orders.StatusPaymentFailed)
 	return nil
 }
+func (s *stubOrders) ExpireStaleCheckouts(context.Context, time.Time, int) (int, error) {
+	return 0, nil
+}
 func (s *stubOrders) AdminList(context.Context, string, *time.Time, *time.Time, int, int) (*orders.AdminOrderList, error) {
 	return &orders.AdminOrderList{}, nil
 }

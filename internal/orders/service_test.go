@@ -580,6 +580,28 @@ func (s *stubRepo) UpdateStatus(_ context.Context, id uuid.UUID, status string) 
 	return nil
 }
 
+func (s *stubRepo) TransitionStatus(_ context.Context, id uuid.UUID, from, to string) (bool, error) {
+	o, ok := s.orders[id]
+	if !ok || o.Status != from {
+		return false, nil
+	}
+	o.Status = to
+	return true, nil
+}
+
+func (s *stubRepo) StalePendingOrders(_ context.Context, olderThan time.Time, limit int) ([]uuid.UUID, error) {
+	var out []uuid.UUID
+	for id, o := range s.orders {
+		if o.Status == StatusPendingPayment && o.CreatedAt.Before(olderThan) {
+			out = append(out, id)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 func (s *stubRepo) ListAll(_ context.Context, _ string, _, _ *time.Time, _, _ int) ([]adminOrderRow, int, error) {
 	return []adminOrderRow{}, 0, nil
 }
@@ -653,6 +675,10 @@ func (t *stubTx) UpdateStatus(ctx context.Context, id uuid.UUID, status string) 
 	return t.parent.UpdateStatus(ctx, id, status)
 }
 
+func (t *stubTx) TransitionStatus(ctx context.Context, id uuid.UUID, from, to string) (bool, error) {
+	return t.parent.TransitionStatus(ctx, id, from, to)
+}
+
 // stubCart only implements the subset of cart.Service that the orders service actually uses.
 type stubCart struct {
 	cartID uuid.UUID
@@ -684,4 +710,96 @@ func (c *stubCart) MergeStatus(context.Context, uuid.UUID, *uuid.UUID) (*cart.Me
 }
 func (c *stubCart) Merge(context.Context, uuid.UUID, uuid.UUID, string) (*cart.CartResponse, error) {
 	return nil, nil
+}
+
+// --- Money/inventory correctness (reaper, atomic transitions) ---
+
+func TestExpireStaleCheckouts_RestocksAndCancels(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 4}
+
+	guest := uuid.New()
+	// Stale pending order created two hours ago.
+	id := repo.seedOrder(orderRow{GuestSessionID: &guest, Status: StatusPendingPayment, CreatedAt: time.Now().Add(-2 * time.Hour)})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 3}}
+
+	svc := newTestService(t, repo, &stubCart{})
+	n, err := svc.ExpireStaleCheckouts(context.Background(), time.Now().Add(-30*time.Minute), 100)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	assert.Equal(t, StatusCancelled, repo.orders[id].Status)
+	assert.Equal(t, 7, repo.products[productID].Stock, "reserved stock released")
+}
+
+func TestExpireStaleCheckouts_SkipsFreshAndNonPending(t *testing.T) {
+	repo := newStubRepo()
+	guest := uuid.New()
+	fresh := repo.seedOrder(orderRow{GuestSessionID: &guest, Status: StatusPendingPayment, CreatedAt: time.Now()})
+	paid := repo.seedOrder(orderRow{GuestSessionID: &guest, Status: StatusPaid, CreatedAt: time.Now().Add(-2 * time.Hour)})
+
+	svc := newTestService(t, repo, &stubCart{})
+	n, err := svc.ExpireStaleCheckouts(context.Background(), time.Now().Add(-30*time.Minute), 100)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	assert.Equal(t, StatusPendingPayment, repo.orders[fresh].Status)
+	assert.Equal(t, StatusPaid, repo.orders[paid].Status)
+}
+
+func TestAdminUpdateStatus_CancelPostPaymentBlocked(t *testing.T) {
+	repo := newStubRepo()
+	id := repo.seedOrder(orderRow{Status: StatusShipped})
+	svc := newTestService(t, repo, &stubCart{})
+
+	_, err := svc.AdminUpdateStatus(context.Background(), id, StatusCancelled)
+	assert.ErrorIs(t, err, ErrNotCancellable, "a shipped (post-payment) order can't be cancelled without a refund")
+	assert.Equal(t, StatusShipped, repo.orders[id].Status)
+}
+
+func TestAdminUpdateStatus_CancelPendingRestocks(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 2}
+	id := repo.seedOrder(orderRow{Status: StatusPendingPayment})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 5}}
+	svc := newTestService(t, repo, &stubCart{})
+
+	_, err := svc.AdminUpdateStatus(context.Background(), id, StatusCancelled)
+	require.NoError(t, err)
+	assert.Equal(t, StatusCancelled, repo.orders[id].Status)
+	assert.Equal(t, 7, repo.products[productID].Stock, "unpaid cancel releases reserved stock")
+}
+
+func TestMarkPaid_Idempotent(t *testing.T) {
+	repo := newStubRepo()
+	id := repo.seedOrder(orderRow{Status: StatusPendingPayment})
+	svc := newTestService(t, repo, &stubCart{})
+
+	require.NoError(t, svc.MarkPaid(context.Background(), id))
+	assert.Equal(t, StatusPaid, repo.orders[id].Status)
+	// Second call is a no-op that still succeeds (webhook replay).
+	require.NoError(t, svc.MarkPaid(context.Background(), id))
+	assert.Equal(t, StatusPaid, repo.orders[id].Status)
+}
+
+func TestCancel_SecondCancelDoesNotDoubleRestock(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 0}
+	owner := uuid.New()
+	id := repo.seedOrder(orderRow{UserID: &owner, Status: StatusPendingPayment})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 3}}
+	svc := newTestService(t, repo, &stubCart{})
+
+	_, err := svc.Cancel(context.Background(), &owner, nil, id)
+	require.NoError(t, err)
+	assert.Equal(t, 3, repo.products[productID].Stock)
+
+	// A second cancel of the now-cancelled order must not restock again.
+	_, err = svc.Cancel(context.Background(), &owner, nil, id)
+	assert.ErrorIs(t, err, ErrNotCancellable)
+	assert.Equal(t, 3, repo.products[productID].Stock, "stock unchanged on repeat cancel")
 }

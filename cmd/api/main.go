@@ -59,6 +59,15 @@ import (
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/user"
 )
 
+const (
+	// Abandoned-checkout reaper cadence. Orders left pending_payment longer than
+	// the TTL have their reserved stock released. The TTL is comfortably longer
+	// than a card payment takes to settle, so the reaper never races a real one.
+	pendingReapInterval = 10 * time.Minute
+	pendingOrderTTL     = 30 * time.Minute
+	pendingReapBatch    = 100
+)
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -309,6 +318,32 @@ func main() {
 		defer close(consumerDone)
 		if err := amqpConsumer.Run(consumerCtx, emailConsumer.Handle); err != nil && consumerCtx.Err() == nil {
 			log.Printf("consumer exited unexpectedly: %v", err)
+		}
+	}()
+
+	// --- Abandoned-checkout reaper ---
+	// Checkout reserves stock by decrementing at order creation, before payment.
+	// Without this, a guest who abandons the flow subtracts sellable units
+	// forever. The reaper releases stock from orders left pending_payment past
+	// the TTL. Compare-and-set transitions make it safe against a late payment.
+	go func() {
+		ticker := time.NewTicker(pendingReapInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-consumerCtx.Done():
+				return
+			case <-ticker.C:
+				cutoff := time.Now().Add(-pendingOrderTTL)
+				rctx, cancel := context.WithTimeout(consumerCtx, 30*time.Second)
+				n, err := ordersService.ExpireStaleCheckouts(rctx, cutoff, pendingReapBatch)
+				cancel()
+				if err != nil {
+					log.Printf("checkout reaper: %v", err)
+				} else if n > 0 {
+					log.Printf("checkout reaper: released stock for %d abandoned order(s)", n)
+				}
+			}
 		}
 	}()
 

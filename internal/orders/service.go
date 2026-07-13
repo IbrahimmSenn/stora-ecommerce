@@ -52,6 +52,10 @@ type Service interface {
 	MarkPaid(ctx context.Context, id uuid.UUID) error
 	MarkPaymentFailed(ctx context.Context, id uuid.UUID) error
 
+	// ExpireStaleCheckouts releases stock held by abandoned pending orders.
+	// Driven by a background ticker in main.
+	ExpireStaleCheckouts(ctx context.Context, olderThan time.Time, limit int) (int, error)
+
 	// Admin entry points (no owner check; guarded by RBAC at the route layer).
 	AdminList(ctx context.Context, status string, from, to *time.Time, page, pageSize int) (*AdminOrderList, error)
 	AdminGet(ctx context.Context, id uuid.UUID) (*OrderResponse, error)
@@ -490,6 +494,15 @@ func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.U
 	}
 
 	err = s.repo.WithTx(ctx, func(tx TxRepo) error {
+		// Compare-and-set first: if a concurrent cancel already moved the order
+		// off its cancellable status, this returns false and we restock nothing.
+		ok, err := tx.TransitionStatus(ctx, id, row.Status, terminalStatus)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotCancellable
+		}
 		for _, it := range items {
 			if it.ProductID == nil {
 				continue
@@ -498,7 +511,7 @@ func (s *service) Cancel(ctx context.Context, userID *uuid.UUID, guestID *uuid.U
 				return err
 			}
 		}
-		return tx.UpdateStatus(ctx, id, terminalStatus)
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -557,11 +570,17 @@ func (s *service) LoadByID(ctx context.Context, id uuid.UUID) (*OrderResponse, e
 	return &OrderResponse{Order: *order, Items: items, Address: *address}, nil
 }
 
+// MarkPaid moves a pending order to paid. Idempotent via compare-and-set:
+// a replayed webhook finds the order already paid, makes no change, and skips
+// re-logging purchases. Only the call that actually flips the status logs.
 func (s *service) MarkPaid(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.UpdateStatus(ctx, id, StatusPaid); err != nil {
+	ok, err := s.repo.TransitionStatus(ctx, id, StatusPendingPayment, StatusPaid)
+	if err != nil {
 		return err
 	}
-	s.logPurchases(ctx, id)
+	if ok {
+		s.logPurchases(ctx, id)
+	}
 	return nil
 }
 
@@ -595,6 +614,16 @@ func (s *service) MarkPaymentFailed(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	return s.repo.WithTx(ctx, func(tx TxRepo) error {
+		// Only the transition from pending_payment restocks. If another path
+		// (cancel, reaper, a prior failure) already moved the order, this is a
+		// no-op so stock is never released twice.
+		ok, err := tx.TransitionStatus(ctx, id, StatusPendingPayment, StatusPaymentFailed)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
 		for _, it := range items {
 			if it.ProductID == nil {
 				continue
@@ -603,8 +632,57 @@ func (s *service) MarkPaymentFailed(ctx context.Context, id uuid.UUID) error {
 				return err
 			}
 		}
-		return tx.UpdateStatus(ctx, id, StatusPaymentFailed)
+		return nil
 	})
+}
+
+// ExpireStaleCheckouts releases the stock reserved by abandoned checkouts:
+// orders left in pending_payment since before olderThan are transitioned to
+// cancelled and their items restocked. Runs up to limit orders per call. The
+// per-order transition is a compare-and-set, so it never races a real payment
+// completing (whichever of MarkPaid / this reaper flips pending_payment first
+// wins; the other is a no-op). Returns the number of orders reaped.
+func (s *service) ExpireStaleCheckouts(ctx context.Context, olderThan time.Time, limit int) (int, error) {
+	ids, err := s.repo.StalePendingOrders(ctx, olderThan, limit)
+	if err != nil {
+		return 0, err
+	}
+	reaped := 0
+	for _, id := range ids {
+		items, err := s.repo.ItemsForRestock(ctx, id)
+		if err != nil {
+			log.Printf("orders: reaper skipped %s: %v", id, err)
+			continue
+		}
+		flipped := false
+		err = s.repo.WithTx(ctx, func(tx TxRepo) error {
+			ok, err := tx.TransitionStatus(ctx, id, StatusPendingPayment, StatusCancelled)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil // already transitioned by payment/cancel — skip restock
+			}
+			for _, it := range items {
+				if it.ProductID == nil {
+					continue
+				}
+				if err := tx.IncrementStock(ctx, *it.ProductID, it.Quantity); err != nil {
+					return err
+				}
+			}
+			flipped = true
+			return nil
+		})
+		if err != nil {
+			log.Printf("orders: reaper failed on %s: %v", id, err)
+			continue
+		}
+		if flipped {
+			reaped++
+		}
+	}
+	return reaped, nil
 }
 
 // helpers --------------------------------------------------------------------
