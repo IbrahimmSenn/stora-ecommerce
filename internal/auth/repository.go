@@ -93,14 +93,20 @@ func (r *postgresAuthRepository) GetRefreshToken(ctx context.Context, tokenStrin
 	return &t, nil
 }
 
+// MarkRefreshTokenUsed atomically flips used false->true. The AND used = false
+// guard makes rotation race-safe: if two concurrent refreshes present the same
+// token, only one UPDATE affects a row. The loser gets ErrTokenUsed, which the
+// service treats as a replay (revokes the family). Zero rows with no matching
+// unused token is reported as ErrTokenUsed rather than NotFound because the row
+// existed at read time — it was just consumed by the winner.
 func (r *postgresAuthRepository) MarkRefreshTokenUsed(ctx context.Context, tokenID string) error {
-	query := `UPDATE refresh_tokens SET used = true WHERE id = $1`
+	query := `UPDATE refresh_tokens SET used = true WHERE id = $1 AND used = false`
 	tag, err := r.db.Exec(ctx, query, tokenID)
 	if err != nil {
 		return fmt.Errorf("mark refresh token used: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return ErrTokenNotFound
+		return ErrTokenUsed
 	}
 	return nil
 }

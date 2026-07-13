@@ -111,6 +111,11 @@ func (m *mockAuthRepo) GetRefreshToken(_ context.Context, tokenString string) (*
 func (m *mockAuthRepo) MarkRefreshTokenUsed(_ context.Context, tokenID string) error {
 	for _, t := range m.tokens {
 		if t.ID.String() == tokenID {
+			// Mirror the atomic "AND used = false" guard: a second consume of
+			// the same token reports ErrTokenUsed.
+			if t.Used {
+				return ErrTokenUsed
+			}
 			t.Used = true
 			return nil
 		}

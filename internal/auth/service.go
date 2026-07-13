@@ -207,6 +207,15 @@ func (s *authService) RefreshTokens(ctx context.Context, req RefreshRequest) (*L
 	}
 
 	if err := s.authRepo.MarkRefreshTokenUsed(ctx, stored.ID.String()); err != nil {
+		// Lost the rotation race (or a replay slipped past the read-time check):
+		// the token was already consumed. Treat exactly like reuse — revoke the
+		// family so a stolen token can't be leveraged.
+		if errors.Is(err, ErrTokenUsed) {
+			slog.Warn("refresh_token_reuse", "user_id", stored.UserID.String(), "reason", "rotation_race")
+			s.metrics.TokenRefresh("failure")
+			_ = s.authRepo.RevokeAllUserTokens(ctx, stored.UserID.String())
+			return nil, ErrTokenUsed
+		}
 		return nil, fmt.Errorf("mark token used: %w", err)
 	}
 
@@ -489,7 +498,14 @@ func (s *authService) useRecoveryCode(ctx context.Context, userID string, tfa *T
 	}
 
 	if found {
-		_ = s.authRepo.StoreRecoveryCodes(ctx, userID, remaining)
+		// Fail closed: if we can't persist the consumed set, the code is still
+		// valid in the DB, so we must not treat this attempt as a successful
+		// single-use. Deny and let the user retry rather than silently allowing
+		// the same code to be reused.
+		if err := s.authRepo.StoreRecoveryCodes(ctx, userID, remaining); err != nil {
+			slog.Error("consume recovery code: persist failed", "user_id", userID, "err", err)
+			return false
+		}
 	}
 
 	return found

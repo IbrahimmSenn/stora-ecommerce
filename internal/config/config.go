@@ -82,6 +82,14 @@ type Config struct {
 	// callers — never wildcard with credentials.
 	CORSOrigins []string
 
+	// TrustedProxies is the CIDR allow-list of proxy hops whose forwarding
+	// headers (X-Forwarded-For / X-Real-IP) may be believed. Requests arriving
+	// from outside this set have their headers ignored and are keyed by the
+	// real connection address — this is what stops per-request IP spoofing of
+	// the rate limiter. Defaults to loopback + private ranges (the compose
+	// network Caddy sits on); override with TRUSTED_PROXIES.
+	TrustedProxies []string
+
 	// Rate limiting (per client IP). General is the global safety net; Auth
 	// is the strict bucket guarding brute-forceable auth endpoints. All
 	// tunable via env so load tests can relax them.
@@ -191,6 +199,20 @@ func Load() (*Config, error) {
 		for _, o := range strings.Split(corsRaw, ",") {
 			if o = strings.TrimSpace(o); o != "" {
 				cfg.CORSOrigins = append(cfg.CORSOrigins, o)
+			}
+		}
+	}
+
+	// Trusted proxies: only these source addresses may set forwarding headers.
+	// Default covers loopback and RFC1918/ULA ranges so the app trusts Caddy on
+	// the private compose network but ignores spoofed headers from anywhere else.
+	proxyRaw := os.Getenv("TRUSTED_PROXIES")
+	if proxyRaw == "" {
+		cfg.TrustedProxies = []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}
+	} else {
+		for _, p := range strings.Split(proxyRaw, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				cfg.TrustedProxies = append(cfg.TrustedProxies, p)
 			}
 		}
 	}

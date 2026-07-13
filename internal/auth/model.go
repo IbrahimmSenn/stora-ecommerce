@@ -14,8 +14,10 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
+	AccessToken string `json:"access_token"`
+	// Omitted from the body in production (cookie-only); present in non-prod for
+	// the token-rotation tester. See auth.Handler.refreshBody.
+	RefreshToken string    `json:"refresh_token,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	TokenType    string    `json:"token_type"`
 	// TwoFactorSetupRequired is true when a staff account signed in without 2FA

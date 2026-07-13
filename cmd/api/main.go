@@ -204,7 +204,9 @@ func main() {
 		auth.WithBcryptCost(cfg.BcryptCost),
 		auth.WithMetrics(rec),
 	)
-	authHandler := auth.NewHandler(authService, cfg.CookieSecure)
+	// Refresh token appears in the JSON body only outside production (for the
+	// token-rotation tester); prod is cookie-only.
+	authHandler := auth.NewHandler(authService, cfg.CookieSecure, cfg.AppEnv != "production")
 
 	auditRecorder := audit.NewRecorder(db, encryptor)
 
@@ -381,7 +383,9 @@ func main() {
 	r.Use(tracing.Middleware)
 	r.Use(httpMetrics.Middleware)
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// Trusted-proxy-aware: forwarding headers are only believed from the proxy
+	// CIDRs, so a direct client can't spoof its IP to dodge the rate limiter.
+	r.Use(mw.RealIP(cfg.TrustedProxies))
 	r.Use(mw.AccessLog)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))

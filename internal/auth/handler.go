@@ -27,10 +27,24 @@ const (
 type Handler struct {
 	service      AuthService
 	cookieSecure bool
+	// exposeRefreshToken controls whether the refresh token appears in the JSON
+	// body. In production it never does — the HttpOnly cookie is the only place
+	// it lives, shrinking the theft surface (no JS/XSS read, no logs). Enabled
+	// only in non-production for the token-rotation tester.
+	exposeRefreshToken bool
 }
 
-func NewHandler(service AuthService, cookieSecure bool) *Handler {
-	return &Handler{service: service, cookieSecure: cookieSecure}
+func NewHandler(service AuthService, cookieSecure, exposeRefreshToken bool) *Handler {
+	return &Handler{service: service, cookieSecure: cookieSecure, exposeRefreshToken: exposeRefreshToken}
+}
+
+// refreshBody clears the refresh token from the response body unless this
+// deployment is allowed to expose it. The cookie is always set separately.
+func (h *Handler) refreshBody(resp *LoginResponse) *LoginResponse {
+	if !h.exposeRefreshToken {
+		resp.RefreshToken = ""
+	}
+	return resp
 }
 
 func (h *Handler) setRefreshCookie(w http.ResponseWriter, token string) {
@@ -87,7 +101,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.setRefreshCookie(w, resp.RefreshToken)
-	response.JSON(w, http.StatusOK, resp)
+	response.JSON(w, http.StatusOK, h.refreshBody(resp))
 }
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +151,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.setRefreshCookie(w, resp.RefreshToken)
-	response.JSON(w, http.StatusOK, resp)
+	response.JSON(w, http.StatusOK, h.refreshBody(resp))
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {

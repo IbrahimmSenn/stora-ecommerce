@@ -3,5 +3,12 @@
 # serves both the SPA and the API on plain HTTP inside the compose network.
 {$DOMAIN} {
 	encode gzip
-	reverse_proxy api:8080
+	reverse_proxy api:8080 {
+		# Strip client-supplied forwarding headers so a caller can't spoof its
+		# IP and defeat the per-IP rate limiter, then set X-Forwarded-For to the
+		# real remote address. The app trusts these only from this proxy hop.
+		header_up -True-Client-IP
+		header_up -X-Real-IP
+		header_up X-Forwarded-For {remote_host}
+	}
 }
