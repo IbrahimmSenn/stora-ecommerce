@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/imageproc"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 type Service interface {
@@ -126,7 +127,7 @@ func (s *service) BulkCreate(ctx context.Context, reqs []CreateProductRequest) *
 			msg := "could not create product"
 			var ve validator.ValidationErrors
 			if errors.As(err, &ve) {
-				msg = formatValidationErrors(ve)
+				msg = response.FormatValidation(ve)
 			} else if err != nil {
 				msg = err.Error()
 			}

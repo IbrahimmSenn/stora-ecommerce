@@ -9,7 +9,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
 	mw "github.com/IbrahimmSenn/stora-ecommerce/internal/middleware"
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/orders"
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
@@ -30,7 +29,7 @@ func (h *Handler) CreateIntent(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "invalid order id")
 		return
 	}
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	resp, err := h.service.CreateIntent(r.Context(), userID, guestID, id)
 	if err != nil {
@@ -69,19 +68,6 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]string{"received": "ok"})
 }
 
-func (h *Handler) resolveOwner(r *http.Request) (*uuid.UUID, *uuid.UUID) {
-	if raw, ok := r.Context().Value(ctxkey.UserID).(string); ok && raw != "" {
-		if uid, err := uuid.Parse(raw); err == nil {
-			return &uid, nil
-		}
-	}
-	if c, err := r.Cookie(mw.GuestSessionCookie); err == nil {
-		if gid, err := uuid.Parse(c.Value); err == nil {
-			return nil, &gid
-		}
-	}
-	return nil, nil
-}
 
 func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	switch {

@@ -10,7 +10,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
 	mw "github.com/IbrahimmSenn/stora-ecommerce/internal/middleware"
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
@@ -35,7 +34,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	resp, err := h.service.Checkout(r.Context(), userID, guestID, req)
 	if err != nil {
@@ -52,7 +51,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "invalid order id")
 		return
 	}
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	resp, err := h.service.GetByID(r.Context(), userID, guestID, id)
 	if err != nil {
@@ -64,7 +63,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 // List handles GET /api/v1/orders?status=&from=&to=
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	q := r.URL.Query()
 	status := q.Get("status")
@@ -92,7 +91,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // 204 No Content for guests or for users with no prior orders — the
 // frontend treats either as "nothing to prefill" without surfacing an error.
 func (h *Handler) Prefill(w http.ResponseWriter, r *http.Request) {
-	userID, _ := h.resolveOwner(r)
+	userID, _ := mw.ResolveOwner(r)
 	if userID == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -116,7 +115,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "invalid order id")
 		return
 	}
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	resp, err := h.service.Cancel(r.Context(), userID, guestID, id)
 	if err != nil {
@@ -127,19 +126,6 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveOwner mirrors the cart handler. JWT user takes priority over guest cookie.
-func (h *Handler) resolveOwner(r *http.Request) (*uuid.UUID, *uuid.UUID) {
-	if raw, ok := r.Context().Value(ctxkey.UserID).(string); ok && raw != "" {
-		if uid, err := uuid.Parse(raw); err == nil {
-			return &uid, nil
-		}
-	}
-	if c, err := r.Cookie(mw.GuestSessionCookie); err == nil {
-		if gid, err := uuid.Parse(c.Value); err == nil {
-			return nil, &gid
-		}
-	}
-	return nil, nil
-}
 
 func parseTimeParam(s string) (*time.Time, error) {
 	if s == "" {
@@ -156,7 +142,7 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	var ve validator.ValidationErrors
 	switch {
 	case errors.As(err, &ve):
-		response.Error(w, http.StatusUnprocessableEntity, formatValidationErrors(ve))
+		response.Error(w, http.StatusUnprocessableEntity, response.FormatValidation(ve))
 	case errors.Is(err, ErrCartEmpty):
 		response.Error(w, http.StatusBadRequest, "your cart is empty")
 	case errors.Is(err, ErrStockChanged):
@@ -188,73 +174,3 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	}
 }
 
-// formatValidationErrors turns validator/v10's typed errors into a single
-// shopper-readable sentence. The frontend renders this in an alert, so we
-// want plain English, not field names and tag literals.
-func formatValidationErrors(ve validator.ValidationErrors) string {
-	if len(ve) == 0 {
-		return "please check your details and try again"
-	}
-	parts := make([]string, 0, len(ve))
-	for _, fe := range ve {
-		parts = append(parts, friendlyField(fe.Field())+" "+friendlyTag(fe))
-	}
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	out := parts[0]
-	for _, p := range parts[1:] {
-		out += "; " + p
-	}
-	return out
-}
-
-func friendlyField(name string) string {
-	switch name {
-	case "Email":
-		return "Email"
-	case "Phone":
-		return "Phone"
-	case "ShippingMethod":
-		return "Shipping method"
-	case "RecipientName":
-		return "Recipient name"
-	case "Line1":
-		return "Address line 1"
-	case "Line2":
-		return "Address line 2"
-	case "City":
-		return "City"
-	case "Region":
-		return "State / region"
-	case "PostalCode":
-		return "Postal code"
-	case "Country":
-		return "Country"
-	default:
-		return name
-	}
-}
-
-func friendlyTag(fe validator.FieldError) string {
-	switch fe.Tag() {
-	case "required":
-		return "is required"
-	case "email":
-		return "must be a valid email address"
-	case "min":
-		return "is too short (min " + fe.Param() + " characters)"
-	case "max":
-		return "is too long (max " + fe.Param() + " characters)"
-	case "len":
-		return "must be exactly " + fe.Param() + " characters"
-	case "alpha":
-		return "must contain letters only"
-	case "iso3166_1_alpha2":
-		return "must be a valid ISO 3166-1 alpha-2 country code (e.g. US, GB, EE)"
-	case "oneof":
-		return "must be one of: " + fe.Param()
-	default:
-		return "is invalid"
-	}
-}

@@ -4,10 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/google/uuid"
 
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/cart"
-	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
 	mw "github.com/IbrahimmSenn/stora-ecommerce/internal/middleware"
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
@@ -32,7 +30,7 @@ func NewHandler(service Service, carts cart.Service) *Handler {
 // loads their current cart to use as short-term intent, and returns a
 // scored rail of products.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	limit := defaultLimit
 	if v := r.URL.Query().Get("limit"); v != "" {
@@ -62,16 +60,3 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func (h *Handler) resolveOwner(r *http.Request) (*uuid.UUID, *uuid.UUID) {
-	if raw, ok := r.Context().Value(ctxkey.UserID).(string); ok && raw != "" {
-		if uid, err := uuid.Parse(raw); err == nil {
-			return &uid, nil
-		}
-	}
-	if c, err := r.Cookie(mw.GuestSessionCookie); err == nil {
-		if gid, err := uuid.Parse(c.Value); err == nil {
-			return nil, &gid
-		}
-	}
-	return nil, nil
-}

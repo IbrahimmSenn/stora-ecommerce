@@ -13,10 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/activity"
-	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/imageproc"
 	mw "github.com/IbrahimmSenn/stora-ecommerce/internal/middleware"
 	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
@@ -34,19 +32,6 @@ func NewHandler(service Service, logger activity.Logger) *Handler {
 	return &Handler{service: service, activity: logger}
 }
 
-func resolveOwner(r *http.Request) (*uuid.UUID, *uuid.UUID) {
-	if raw, ok := r.Context().Value(ctxkey.UserID).(string); ok && raw != "" {
-		if uid, err := uuid.Parse(raw); err == nil {
-			return &uid, nil
-		}
-	}
-	if c, err := r.Cookie(mw.GuestSessionCookie); err == nil {
-		if gid, err := uuid.Parse(c.Value); err == nil {
-			return nil, &gid
-		}
-	}
-	return nil, nil
-}
 
 // Search handles GET /api/v1/products with query params for faceted search.
 // Query params: q, category_id, brand_id, min_price, max_price, min_rating, sort, page, page_size
@@ -99,7 +84,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if params.Query != "" {
-		userID, guestID := resolveOwner(r)
+		userID, guestID := mw.ResolveOwner(r)
 		h.activity.LogSearch(r.Context(), userID, guestID, params.Query)
 	}
 	response.JSON(w, http.StatusOK, result)
@@ -129,7 +114,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	userID, guestID := resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 	h.activity.LogView(r.Context(), userID, guestID, &p.ID, p.CategoryID)
 	response.JSON(w, http.StatusOK, p)
 }
@@ -150,7 +135,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var ve validator.ValidationErrors
 		if errors.As(err, &ve) {
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 			return
 		}
 		if errors.Is(err, ErrInvalidSalePrice) {
@@ -297,7 +282,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, ErrInvalidSalePrice):
 			response.Error(w, http.StatusBadRequest, ErrInvalidSalePrice.Error())
 		case errors.Is(err, ErrProductNotFound):
@@ -411,12 +396,4 @@ func (h *Handler) DeleteImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"message": "image deleted"})
-}
-
-func formatValidationErrors(ve validator.ValidationErrors) string {
-	msg := "validation failed:"
-	for _, fe := range ve {
-		msg += " " + fe.Field() + " " + fe.Tag() + ";"
-	}
-	return msg
 }

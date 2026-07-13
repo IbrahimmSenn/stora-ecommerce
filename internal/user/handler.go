@@ -38,7 +38,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, passwordpolicy.ErrWeak):
 			response.Error(w, http.StatusBadRequest, passwordpolicy.ErrWeak.Error())
 		case errors.Is(err, ErrEmailExists):
@@ -115,7 +115,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, ErrWrongPassword):
 			response.Error(w, http.StatusBadRequest, ErrWrongPassword.Error())
 		case errors.Is(err, ErrNoPassword):
@@ -131,12 +131,4 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"message": "password updated"})
-}
-
-func formatValidationErrors(ve validator.ValidationErrors) string {
-	msg := "validation failed:"
-	for _, fe := range ve {
-		msg += " " + fe.Field() + " " + fe.Tag() + ";"
-	}
-	return msg
 }

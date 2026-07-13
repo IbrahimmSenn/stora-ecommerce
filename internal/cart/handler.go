@@ -26,7 +26,7 @@ func NewHandler(service Service, cookieSecure bool) *Handler {
 
 // GetCart handles GET /api/v1/cart
 func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	cart, err := h.service.GetCart(r.Context(), userID, guestID)
 	if err != nil {
@@ -48,7 +48,7 @@ func (h *Handler) AddItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	cart, err := h.service.AddItem(r.Context(), userID, guestID, req)
 	if err != nil {
@@ -79,7 +79,7 @@ func (h *Handler) UpdateItem(w http.ResponseWriter, r *http.Request) {
 		Quantity:  body.Quantity,
 	}
 
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	cart, err := h.service.UpdateItem(r.Context(), userID, guestID, req)
 	if err != nil {
@@ -93,7 +93,7 @@ func (h *Handler) UpdateItem(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RemoveItem(w http.ResponseWriter, r *http.Request) {
 	productID := chi.URLParam(r, "productId")
 
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	cart, err := h.service.RemoveItem(r.Context(), userID, guestID, productID)
 	if err != nil {
@@ -105,7 +105,7 @@ func (h *Handler) RemoveItem(w http.ResponseWriter, r *http.Request) {
 
 // ClearCart handles DELETE /api/v1/cart
 func (h *Handler) ClearCart(w http.ResponseWriter, r *http.Request) {
-	userID, guestID := h.resolveOwner(r)
+	userID, guestID := mw.ResolveOwner(r)
 
 	if err := h.service.ClearCart(r.Context(), userID, guestID); err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to clear cart")
@@ -211,27 +211,12 @@ func (h *Handler) clearGuestCookie(w http.ResponseWriter) {
 
 // resolveOwner extracts the user ID from the JWT context or the guest session
 // ID from the cookie. Authenticated users take priority over guest sessions.
-func (h *Handler) resolveOwner(r *http.Request) (*uuid.UUID, *uuid.UUID) {
-	if raw, ok := r.Context().Value(ctxkey.UserID).(string); ok && raw != "" {
-		if uid, err := uuid.Parse(raw); err == nil {
-			return &uid, nil
-		}
-	}
-
-	if c, err := r.Cookie(mw.GuestSessionCookie); err == nil {
-		if gid, err := uuid.Parse(c.Value); err == nil {
-			return nil, &gid
-		}
-	}
-
-	return nil, nil
-}
 
 func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	var ve validator.ValidationErrors
 	switch {
 	case errors.As(err, &ve):
-		response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+		response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 	case errors.Is(err, ErrOutOfStock):
 		response.Error(w, http.StatusConflict, "not enough stock available")
 	case errors.Is(err, ErrItemNotFound):
@@ -247,12 +232,4 @@ func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	default:
 		response.Error(w, http.StatusInternalServerError, "internal server error")
 	}
-}
-
-func formatValidationErrors(ve validator.ValidationErrors) string {
-	msg := "validation failed:"
-	for _, fe := range ve {
-		msg += " " + fe.Field() + " " + fe.Tag() + ";"
-	}
-	return msg
 }

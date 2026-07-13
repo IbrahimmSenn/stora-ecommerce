@@ -73,7 +73,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, ErrInvalidCredentials):
 			response.Error(w, http.StatusUnauthorized, "invalid email or password")
 		case errors.Is(err, Err2FARequired):
@@ -116,7 +116,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, ErrInvalidToken),
 			errors.Is(err, ErrTokenNotFound):
 			h.clearRefreshCookie(w)
@@ -172,7 +172,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.ForgotPassword(r.Context(), req); err != nil {
 		var ve validator.ValidationErrors
 		if errors.As(err, &ve) {
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 			return
 		}
 		// Log the underlying reason; the client still sees the generic 500.
@@ -200,7 +200,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, passwordpolicy.ErrWeak):
 			response.Error(w, http.StatusBadRequest, passwordpolicy.ErrWeak.Error())
 		case errors.Is(err, ErrResetTokenNotFound):
@@ -263,7 +263,7 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, Err2FAAlreadyEnabled):
 			response.Error(w, http.StatusConflict, "2fa is already enabled")
 		case errors.Is(err, Err2FANotEnabled):
@@ -300,7 +300,7 @@ func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 		var ve validator.ValidationErrors
 		switch {
 		case errors.As(err, &ve):
-			response.Error(w, http.StatusBadRequest, formatValidationErrors(ve))
+			response.Error(w, http.StatusBadRequest, response.FormatValidation(ve))
 		case errors.Is(err, Err2FANotEnabled):
 			response.Error(w, http.StatusBadRequest, "2fa is not enabled")
 		case errors.Is(err, ErrInvalid2FACode):
@@ -312,12 +312,4 @@ func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, AuthMessageResponse{Message: "2fa has been disabled"})
-}
-
-func formatValidationErrors(ve validator.ValidationErrors) string {
-	msg := "validation failed:"
-	for _, fe := range ve {
-		msg += " " + fe.Field() + " " + fe.Tag() + ";"
-	}
-	return msg
 }
