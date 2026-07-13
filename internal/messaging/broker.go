@@ -74,7 +74,10 @@ func (b *Broker) connect(ctx context.Context) error {
 	b.pubCh = ch
 	b.mu.Unlock()
 
-	go b.watch(conn)
+	// The watcher must NOT inherit ctx: at boot ctx is the 30s dial deadline,
+	// and reconnection has to keep working long after it expires. The watcher's
+	// lifetime is bounded by Close() (via b.done), not any request context.
+	go b.watch(conn) // #nosec G118 -- reconnect loop is intentionally detached from the boot context
 	return nil
 }
 
