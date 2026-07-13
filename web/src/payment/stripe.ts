@@ -20,20 +20,24 @@ export function getStripe(publishableKey: string) {
 
 type Theme = 'light' | 'dark'
 
+// Hex approximations of the OKLCH design tokens (web/src/styles/tokens.css):
+// cobalt-indigo primary, coral-red danger, and the neutral surface/ink/border
+// for each theme. Kept in sync with tokens.css by eye — Stripe Elements only
+// accepts hex, so these can't reference the CSS variables directly.
 const STRIPE_THEME = {
   light: {
-    colorPrimary: '#c95f3f',
-    colorBackground: '#fafaf9',
-    colorText: '#241f1d',
-    colorDanger: '#c95f3f',
-    borderColor: '#bdb5b1',
+    colorPrimary: '#2e5bda',
+    colorBackground: '#fafafa',
+    colorText: '#14161b',
+    colorDanger: '#cc272e',
+    borderColor: '#bbbec3',
   },
   dark: {
-    colorPrimary: '#e3805f',
-    colorBackground: '#1a1d22',
-    colorText: '#ece9e3',
-    colorDanger: '#e3805f',
-    borderColor: '#4f5460',
+    colorPrimary: '#588aff',
+    colorBackground: '#0b0d13',
+    colorText: '#edeef2',
+    colorDanger: '#fc5855',
+    borderColor: '#484d58',
   },
 } as const
 

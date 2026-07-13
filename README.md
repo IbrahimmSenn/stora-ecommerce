@@ -19,7 +19,7 @@ The repo is also deployment-ready: a production compose overlay, TLS via Caddy, 
 - **Layered Go backend** — handler → service → repository, interfaces everywhere, raw SQL via pgx (no ORM), mock-tested services.
 - **Real payment lifecycle** — Stripe PaymentIntents, signature-verified webhooks, idempotent event handling, refunds, inventory locking (`SELECT ... FOR UPDATE` serialises concurrent checkouts on the last unit).
 - **Event-driven email** — payment events flow through RabbitMQ topic exchanges to a notifications consumer with retry + dead-letter queue.
-- **Security in depth** — JWT with refresh-token rotation and replay detection, TOTP 2FA (enforced for all admin accounts), RBAC (admin/support/sales/customer), reCAPTCHA v3, per-IP token-bucket rate limiting, AES-256-GCM encryption of PII at rest, audit logging of admin actions, and a boot-time production validator that refuses to start with insecure settings.
+- **Security in depth** — JWT with refresh-token rotation and replay detection, TOTP 2FA (enforced for all admin accounts), RBAC (admin/support/sales/customer), reCAPTCHA v3, per-IP token-bucket rate limiting (with trusted-proxy IP resolution so forwarded headers can't be spoofed), AES-256-GCM encryption of PII at rest, audit logging of admin mutations, and a boot-time production validator that refuses to start with insecure settings.
 - **Full observability stack** — Prometheus + Grafana + Loki + Tempo: RED metrics with trace exemplars, SLO burn-rate alerts, business dashboards with a conversion funnel, distributed traces from HTTP through SQL to RabbitMQ, browser Core Web Vitals.
 - **CI/CD pipeline** — five stages from tests and security scans through migration validation and an ephemeral-environment deployment rehearsal to continuous deployment on the live server, with scripted DB-backed rollback.
 
@@ -82,11 +82,11 @@ Access tokens live **in memory only** — refreshing the tab clears authenticati
 
 ### Admin
 
-The admin area at `/admin` (2FA-enforced) covers product CRUD with multi-size image upload and JSON/CSV bulk import, category/brand/delivery-option management, order status updates and refunds, user role assignment, review moderation, and an audit log of every admin action. RBAC follows least privilege: `support` sees Orders/Reviews, `sales` sees Products/Categories/Brands/Delivery, only `admin` sees everything.
+The admin area at `/admin` (2FA-enforced) covers product CRUD with multi-size image upload and JSON/CSV bulk import, category/brand/delivery-option management, order status updates and refunds, user role assignment, review moderation, and an audit log of every admin mutation (create/update/delete/refund; reads aren't logged). RBAC follows least privilege: `support` sees Orders/Reviews, `sales` sees Products/Categories/Brands/Delivery, only `admin` sees everything.
 
 ### Theming
 
-Tokens in [web/src/styles/tokens.css](web/src/styles/tokens.css) — near-monochrome OKLCH neutrals tinted toward an **oxblood** accent. Display face **Bricolage Grotesque Variable**, body **Hanken Grotesk Variable**, both self-hosted via `@fontsource-variable`. Light/dark persists in `localStorage` (first load reads `prefers-color-scheme`); motion collapses to instant under `prefers-reduced-motion: reduce`.
+Tokens in [web/src/styles/tokens.css](web/src/styles/tokens.css) — near-monochrome OKLCH neutrals with an **electric cobalt-indigo** primary, a **hot coral-red** accent (sale prices, badges, errors), and a **punchy yellow** highlight for promos. Display face **Lato**, body **Hanken Grotesk Variable**, both self-hosted via `@fontsource`. Light/dark persists in `localStorage` (first load reads `prefers-color-scheme`); motion collapses to instant under `prefers-reduced-motion: reduce`.
 
 ## API Reference
 

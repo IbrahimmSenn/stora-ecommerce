@@ -15,7 +15,7 @@ Three k6 scenarios mimic real user behaviour (`load.js`):
 A separate **stress ramp** (`stress.js`) pushes browse traffic from 0 → 1000 VUs
 to locate the latency knee.
 
-Two test-only adjustments (see `docker-compose.loadtest.yml`), both documented so
+Test-only adjustments (see `docker-compose.loadtest.yml`), documented so
 results aren't misread:
 - Per-IP rate limits are relaxed — k6 drives all traffic from one IP, so the
   production token bucket would otherwise cap throughput and emit 429s (a test
@@ -24,6 +24,12 @@ results aren't misread:
   fails it fast and proceeds via `address_override`, isolating order-placement
   throughput from a third-party dependency. Product stock was raised so checkout
   isn't starved by inventory depletion.
+- **Catalog size**: the seeded catalog is only ~10 products. Read latencies are
+  correspondingly optimistic — the working set fits entirely in Postgres's cache
+  and the query planner never touches disk. Treat the read throughput as an
+  upper bound; a production-sized catalog with cold pages and larger result sets
+  would raise p95 for browse/search. The relative scenario comparison and the
+  write-path (checkout) numbers are representative.
 
 ## Results — normal load (mixed scenarios, peak 83 concurrent VUs)
 
