@@ -88,13 +88,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyToken],
   )
 
-  const loginWithToken = useCallback(
-    (accessToken: string, emailHint: string) => {
-      applyToken(accessToken, emailHint)
-    },
-    [applyToken],
-  )
-
   const logout = useCallback(async () => {
     try {
       await api.logout()
@@ -116,11 +109,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name,
       role,
       login,
-      loginWithToken,
       logout,
       refreshMe,
     }),
-    [email, initializing, name, role, login, loginWithToken, logout, refreshMe],
+    [email, initializing, name, role, login, logout, refreshMe],
   )
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>

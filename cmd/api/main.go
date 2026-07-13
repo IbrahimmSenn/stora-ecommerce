@@ -61,8 +61,11 @@ import (
 
 const (
 	// Abandoned-checkout reaper cadence. Orders left pending_payment longer than
-	// the TTL have their reserved stock released. The TTL is comfortably longer
-	// than a card payment takes to settle, so the reaper never races a real one.
+	// the TTL have their Stripe intents voided and their reserved stock
+	// released. Voiding first means a customer who left the payment form open
+	// past the TTL gets a declined confirmation instead of a charge against a
+	// cancelled order; if the payment already succeeded, the reaper reconciles
+	// the order to paid instead of reaping it.
 	pendingReapInterval = 10 * time.Minute
 	pendingOrderTTL     = 30 * time.Minute
 	pendingReapBatch    = 100
@@ -277,12 +280,18 @@ func main() {
 		}
 		return paymentsService.Reconcile(ctx, orderID)
 	})
+	canceller := orders.IntentCancellerFunc(func(ctx context.Context, orderID uuid.UUID) error {
+		if paymentsService == nil {
+			return nil
+		}
+		return paymentsService.CancelOrderIntents(ctx, orderID)
+	})
 
 	geocoder := orders.NewNominatimGeocoder(cfg.NominatimBaseURL, cfg.NominatimUserAgent)
 	log.Printf("address verification: nominatim at %s", cfg.NominatimBaseURL)
 
 	ordersRepo := orders.NewRepository(db)
-	ordersService := orders.NewService(ordersRepo, cartService, encryptor, geocoder, refunder, reconciler, deliveryService,
+	ordersService := orders.NewService(ordersRepo, cartService, encryptor, geocoder, refunder, reconciler, canceller, deliveryService,
 		orders.WithMetrics(rec), orders.WithActivityLogger(activityService))
 	ordersHandler := orders.NewHandler(ordersService)
 
@@ -310,8 +319,9 @@ func main() {
 	// --- Abandoned-checkout reaper ---
 	// Checkout reserves stock by decrementing at order creation, before payment.
 	// Without this, a guest who abandons the flow subtracts sellable units
-	// forever. The reaper releases stock from orders left pending_payment past
-	// the TTL. Compare-and-set transitions make it safe against a late payment.
+	// forever. The reaper voids each order's pending Stripe intents (so a late
+	// confirmation can't charge a cancelled order), then releases the stock.
+	// Compare-and-set transitions close the remaining races.
 	go func() {
 		ticker := time.NewTicker(pendingReapInterval)
 		defer ticker.Stop()

@@ -12,7 +12,6 @@ import { LoginPage } from './auth/LoginPage'
 import { RegisterPage } from './auth/RegisterPage'
 import { ForgotPasswordPage } from './auth/ForgotPasswordPage'
 import { ResetPasswordPage } from './auth/ResetPasswordPage'
-import { OAuthCallbackPage } from './auth/OAuthCallbackPage'
 import { AccountPage } from './account/AccountPage'
 import { TwoFactorSetupPage } from './account/TwoFactorSetupPage'
 import { TwoFactorDisablePage } from './account/TwoFactorDisablePage'
@@ -63,7 +62,6 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/auth/oauth/callback" element={<OAuthCallbackPage />} />
 
         <Route path="/about" element={<AboutPage />} />
         <Route path="/contact" element={<ContactPage />} />

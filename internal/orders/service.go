@@ -49,7 +49,11 @@ type Service interface {
 	// bypass the user/guest owner check because the caller is the system
 	// itself (a Stripe webhook), not an HTTP request.
 	LoadByID(ctx context.Context, id uuid.UUID) (*OrderResponse, error)
-	MarkPaid(ctx context.Context, id uuid.UUID) error
+	// MarkPaid reports whether the order is in a paid-or-later state after the
+	// call. false means the charge has no live order behind it (the order was
+	// cancelled/reaped/failed before the payment landed) — the caller must not
+	// confirm the purchase.
+	MarkPaid(ctx context.Context, id uuid.UUID) (bool, error)
 	MarkPaymentFailed(ctx context.Context, id uuid.UUID) error
 
 	// ExpireStaleCheckouts releases stock held by abandoned pending orders.
@@ -93,6 +97,22 @@ func (f ReconcilerFunc) Reconcile(ctx context.Context, orderID uuid.UUID) error 
 	return f(ctx, orderID)
 }
 
+// IntentCanceller voids every still-pending Stripe intent for an order. The
+// checkout reaper calls it before releasing reserved stock so an abandoned
+// checkout can't be charged after its order is cancelled. Returns an error
+// wrapping ErrPaymentInFlight when an intent already succeeded — the order
+// must then be reconciled, not reaped. Same consumer-side pattern as Refunder.
+type IntentCanceller interface {
+	CancelOrderIntents(ctx context.Context, orderID uuid.UUID) error
+}
+
+// IntentCancellerFunc adapts a plain function to the IntentCanceller interface.
+type IntentCancellerFunc func(ctx context.Context, orderID uuid.UUID) error
+
+func (f IntentCancellerFunc) CancelOrderIntents(ctx context.Context, orderID uuid.UUID) error {
+	return f(ctx, orderID)
+}
+
 type service struct {
 	repo       Repository
 	carts      cart.Service
@@ -101,6 +121,7 @@ type service struct {
 	geocoder   Geocoder
 	refunder   Refunder
 	reconciler Reconciler
+	canceller  IntentCanceller
 	rater      ShippingRater
 	metrics    metrics.Recorder
 	activity   activity.Logger
@@ -119,7 +140,7 @@ func WithActivityLogger(l activity.Logger) ServiceOption {
 	return func(s *service) { s.activity = l }
 }
 
-func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, geocoder Geocoder, refunder Refunder, reconciler Reconciler, rater ShippingRater, opts ...ServiceOption) Service {
+func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor, geocoder Geocoder, refunder Refunder, reconciler Reconciler, canceller IntentCanceller, rater ShippingRater, opts ...ServiceOption) Service {
 	v := validator.New()
 	// Stricter than `alpha,len=2`: rejects "ZZ" etc. by checking against the
 	// real ISO 3166-1 alpha-2 list. Applied via the `iso3166_1_alpha2` tag.
@@ -137,6 +158,7 @@ func NewService(repo Repository, carts cart.Service, encryptor *crypto.Encryptor
 		geocoder:   geocoder,
 		refunder:   refunder,
 		reconciler: reconciler,
+		canceller:  canceller,
 		rater:      rater,
 		metrics:    metrics.Noop{},
 	}
@@ -573,15 +595,35 @@ func (s *service) LoadByID(ctx context.Context, id uuid.UUID) (*OrderResponse, e
 // MarkPaid moves a pending order to paid. Idempotent via compare-and-set:
 // a replayed webhook finds the order already paid, makes no change, and skips
 // re-logging purchases. Only the call that actually flips the status logs.
-func (s *service) MarkPaid(ctx context.Context, id uuid.UUID) error {
+//
+// A no-op CAS is ambiguous — the order may already be paid (webhook replay,
+// fine) or it may have left pending_payment another way (reaped, cancelled,
+// failed). The returned bool resolves that: true means the order is in a
+// paid-or-later state, false means the money has no live order behind it.
+func (s *service) MarkPaid(ctx context.Context, id uuid.UUID) (bool, error) {
 	ok, err := s.repo.TransitionStatus(ctx, id, StatusPendingPayment, StatusPaid)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if ok {
 		s.logPurchases(ctx, id)
+		return true, nil
 	}
-	return nil
+	row, _, _, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return isPostPaymentStatus(row.Status), nil
+}
+
+// isPostPaymentStatus reports whether a status means the order's charge is
+// backed by a live, fulfillable order.
+func isPostPaymentStatus(status string) bool {
+	switch status {
+	case StatusPaid, StatusProcessing, StatusShipped, StatusDelivered:
+		return true
+	}
+	return false
 }
 
 // logPurchases is best-effort — activity logging never fails an order
@@ -638,10 +680,16 @@ func (s *service) MarkPaymentFailed(ctx context.Context, id uuid.UUID) error {
 
 // ExpireStaleCheckouts releases the stock reserved by abandoned checkouts:
 // orders left in pending_payment since before olderThan are transitioned to
-// cancelled and their items restocked. Runs up to limit orders per call. The
-// per-order transition is a compare-and-set, so it never races a real payment
-// completing (whichever of MarkPaid / this reaper flips pending_payment first
-// wins; the other is a no-op). Returns the number of orders reaped.
+// cancelled and their items restocked. Runs up to limit orders per call.
+// Returns the number of orders reaped.
+//
+// Before touching an order it voids the order's pending Stripe intents, so a
+// customer who left the payment form open can no longer be charged for an
+// order this is about to cancel. If the canceller reports the payment already
+// succeeded (ErrPaymentInFlight), the order isn't abandoned — it's a stuck
+// payment (e.g. a lost webhook), so it's handed to the reconciler instead.
+// The status transition itself stays a compare-and-set, so even a payment
+// that lands mid-reap can't be double-applied.
 func (s *service) ExpireStaleCheckouts(ctx context.Context, olderThan time.Time, limit int) (int, error) {
 	ids, err := s.repo.StalePendingOrders(ctx, olderThan, limit)
 	if err != nil {
@@ -649,6 +697,21 @@ func (s *service) ExpireStaleCheckouts(ctx context.Context, olderThan time.Time,
 	}
 	reaped := 0
 	for _, id := range ids {
+		if s.canceller != nil {
+			if err := s.canceller.CancelOrderIntents(ctx, id); err != nil {
+				if errors.Is(err, ErrPaymentInFlight) {
+					log.Printf("orders: reaper found a live payment on %s — reconciling instead", id)
+					if s.reconciler != nil {
+						if rerr := s.reconciler.Reconcile(ctx, id); rerr != nil {
+							log.Printf("orders: reconcile of %s failed: %v", id, rerr)
+						}
+					}
+					continue
+				}
+				log.Printf("orders: reaper skipped %s: cancel intents: %v", id, err)
+				continue
+			}
+		}
 		items, err := s.repo.ItemsForRestock(ctx, id)
 		if err != nil {
 			log.Printf("orders: reaper skipped %s: %v", id, err)

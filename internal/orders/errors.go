@@ -14,6 +14,12 @@ var (
 	ErrInvalidStatus     = errors.New("invalid shipping status")
 	ErrNotRefundable     = errors.New("order cannot be refunded in its current status")
 
+	// ErrPaymentInFlight is returned (wrapped) by IntentCanceller when an
+	// order's Stripe intent has already succeeded or is mid-processing. The
+	// checkout reaper treats it as "this order is not abandoned" and leaves
+	// the reserved stock alone.
+	ErrPaymentInFlight = errors.New("a payment for this order is in flight")
+
 	// Address verification.
 	// ErrAddressNotVerifiable: the geocoder returned no match for the address.
 	// ErrAddressVerificationUnavailable: the geocoder itself failed (network,

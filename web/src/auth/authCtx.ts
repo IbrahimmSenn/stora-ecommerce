@@ -12,7 +12,6 @@ export type AuthState = {
   name: string | null
   role: string | null
   login: (email: string, password: string, totp?: string) => Promise<void>
-  loginWithToken: (accessToken: string, email: string) => void
   logout: () => Promise<void>
   /** Re-fetch /me so profile edits update the nav immediately. */
   refreshMe: () => Promise<void>

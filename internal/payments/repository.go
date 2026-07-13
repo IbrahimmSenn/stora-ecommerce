@@ -19,6 +19,15 @@ type Repository interface {
 	UpdateFailed(ctx context.Context, intentID, code, message string) error
 	LatestForOrder(ctx context.Context, orderID uuid.UUID) (*Payment, error)
 	MarkRefunded(ctx context.Context, paymentID uuid.UUID, refundID string) error
+	// PendingIntentIDsForOrder returns the Stripe intent id of every payment
+	// row still 'pending' for the order — the set the checkout reaper must
+	// void before releasing stock. Empty when the customer never reached the
+	// payment step.
+	PendingIntentIDsForOrder(ctx context.Context, orderID uuid.UUID) ([]string, error)
+	// UpdateCancelled flips a pending payment row to cancelled after its
+	// Stripe intent was voided. Guarded on status = pending so a webhook that
+	// won the race isn't overwritten; losing that race is a silent no-op.
+	UpdateCancelled(ctx context.Context, intentID string) error
 }
 
 type postgresRepository struct {
@@ -175,6 +184,46 @@ func (r *postgresRepository) LatestForOrder(ctx context.Context, orderID uuid.UU
 		return nil, fmt.Errorf("latest payment for order: %w", err)
 	}
 	return p, nil
+}
+
+func (r *postgresRepository) PendingIntentIDsForOrder(ctx context.Context, orderID uuid.UUID) ([]string, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT stripe_payment_intent_id_enc FROM payments
+		 WHERE order_id = $1 AND status = $2
+		 ORDER BY created_at`,
+		orderID, StatusPending,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query pending intents for order: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var enc []byte
+		if err := rows.Scan(&enc); err != nil {
+			return nil, fmt.Errorf("scan pending intent: %w", err)
+		}
+		id, err := r.encryptor.Decrypt(enc)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt payment intent id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (r *postgresRepository) UpdateCancelled(ctx context.Context, intentID string) error {
+	piHMAC := r.encryptor.HMAC(intentID)
+	_, err := r.db.Exec(ctx,
+		`UPDATE payments SET status = $2
+		 WHERE stripe_payment_intent_id_hmac = $1 AND status = $3`,
+		piHMAC, StatusCancelled, StatusPending,
+	)
+	if err != nil {
+		return fmt.Errorf("mark payment cancelled: %w", err)
+	}
+	return nil
 }
 
 // MarkRefunded flips the row to refunded, stamping the encrypted Stripe

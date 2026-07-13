@@ -21,6 +21,11 @@ type Recorder interface {
 	OrderPaid(amountCents int64)
 	PaymentSucceeded()
 	PaymentFailed(reason string)
+	// PaymentOrphaned counts charges that landed on an order no longer able to
+	// be fulfilled (e.g. reaped as abandoned before a late payment). Should
+	// stay at zero; any increment means a customer was charged and refunded
+	// (or needs a manual refund).
+	PaymentOrphaned()
 	LoginAttempt(result, reason string)
 	TokenRefresh(result string)
 	PasswordReset(event string)
@@ -35,6 +40,7 @@ func (Noop) CheckoutFailed(string)    {}
 func (Noop) OrderPaid(int64)          {}
 func (Noop) PaymentSucceeded()        {}
 func (Noop) PaymentFailed(string)     {}
+func (Noop) PaymentOrphaned()         {}
 func (Noop) LoginAttempt(_, _ string) {}
 func (Noop) TokenRefresh(string)      {}
 func (Noop) PasswordReset(string)     {}
@@ -109,6 +115,7 @@ func (p *Prom) PaymentSucceeded() { p.payments.WithLabelValues("succeeded", "non
 func (p *Prom) PaymentFailed(reason string) {
 	p.payments.WithLabelValues("failed", orNone(reason)).Inc()
 }
+func (p *Prom) PaymentOrphaned() { p.payments.WithLabelValues("orphaned", "order_not_pending").Inc() }
 
 func (p *Prom) LoginAttempt(result, reason string) {
 	p.logins.WithLabelValues(result, orNone(reason)).Inc()

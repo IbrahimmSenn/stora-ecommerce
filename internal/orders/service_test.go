@@ -3,6 +3,7 @@ package orders
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -29,6 +30,10 @@ func newTestServiceWithGeocoder(t *testing.T, repo *stubRepo, carts cart.Service
 }
 
 func newTestServiceWithDeps(t *testing.T, repo *stubRepo, carts cart.Service, refunder Refunder, geocoder Geocoder) Service {
+	return newTestServiceFull(t, repo, carts, refunder, geocoder, nil, nil)
+}
+
+func newTestServiceFull(t *testing.T, repo *stubRepo, carts cart.Service, refunder Refunder, geocoder Geocoder, reconciler Reconciler, canceller IntentCanceller) Service {
 	t.Helper()
 	enc, err := crypto.NewEncryptor(testHexKey)
 	require.NoError(t, err)
@@ -36,7 +41,7 @@ func newTestServiceWithDeps(t *testing.T, repo *stubRepo, carts cart.Service, re
 		geocoder = PassthroughGeocoder{}
 	}
 	// nil rater → falls back to the built-in flat shipping rates.
-	return NewService(repo, carts, enc, geocoder, refunder, nil, nil)
+	return NewService(repo, carts, enc, geocoder, refunder, reconciler, canceller, nil)
 }
 
 type stubRefunder struct {
@@ -45,6 +50,26 @@ type stubRefunder struct {
 }
 
 func (s *stubRefunder) RefundOrder(_ context.Context, orderID uuid.UUID) error {
+	s.calls = append(s.calls, orderID)
+	return s.err
+}
+
+type stubCanceller struct {
+	calls []uuid.UUID
+	err   error
+}
+
+func (s *stubCanceller) CancelOrderIntents(_ context.Context, orderID uuid.UUID) error {
+	s.calls = append(s.calls, orderID)
+	return s.err
+}
+
+type stubReconciler struct {
+	calls []uuid.UUID
+	err   error
+}
+
+func (s *stubReconciler) Reconcile(_ context.Context, orderID uuid.UUID) error {
 	s.calls = append(s.calls, orderID)
 	return s.err
 }
@@ -733,6 +758,58 @@ func TestExpireStaleCheckouts_RestocksAndCancels(t *testing.T) {
 	assert.Equal(t, 7, repo.products[productID].Stock, "reserved stock released")
 }
 
+func TestExpireStaleCheckouts_VoidsIntentsBeforeRestock(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 0}
+	guest := uuid.New()
+	id := repo.seedOrder(orderRow{GuestSessionID: &guest, Status: StatusPendingPayment, CreatedAt: time.Now().Add(-2 * time.Hour)})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 2}}
+
+	canceller := &stubCanceller{}
+	svc := newTestServiceFull(t, repo, &stubCart{}, nil, nil, nil, canceller)
+	n, err := svc.ExpireStaleCheckouts(context.Background(), time.Now().Add(-30*time.Minute), 100)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+	assert.Equal(t, []uuid.UUID{id}, canceller.calls, "the order's Stripe intents must be voided before its stock is released")
+	assert.Equal(t, StatusCancelled, repo.orders[id].Status)
+	assert.Equal(t, 2, repo.products[productID].Stock)
+}
+
+func TestExpireStaleCheckouts_PaymentInFlightReconcilesInsteadOfReaping(t *testing.T) {
+	repo := newStubRepo()
+	guest := uuid.New()
+	id := repo.seedOrder(orderRow{GuestSessionID: &guest, Status: StatusPendingPayment, CreatedAt: time.Now().Add(-2 * time.Hour)})
+
+	canceller := &stubCanceller{err: fmt.Errorf("intent pi_x is succeeded: %w", ErrPaymentInFlight)}
+	reconciler := &stubReconciler{}
+	svc := newTestServiceFull(t, repo, &stubCart{}, nil, nil, reconciler, canceller)
+	n, err := svc.ExpireStaleCheckouts(context.Background(), time.Now().Add(-30*time.Minute), 100)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	assert.Equal(t, StatusPendingPayment, repo.orders[id].Status, "an order with a live payment must not be cancelled")
+	assert.Equal(t, []uuid.UUID{id}, reconciler.calls, "the stuck payment should be reconciled")
+}
+
+func TestExpireStaleCheckouts_CancellerErrorSkipsOrder(t *testing.T) {
+	repo := newStubRepo()
+	productID := uuid.New()
+	repo.products[productID] = LockedProduct{ID: productID, Name: "Widget", Price: 1000, Stock: 0}
+	guest := uuid.New()
+	id := repo.seedOrder(orderRow{GuestSessionID: &guest, Status: StatusPendingPayment, CreatedAt: time.Now().Add(-2 * time.Hour)})
+	pid := productID
+	repo.itemsByOrder[id] = []OrderItem{{ID: uuid.New(), OrderID: id, ProductID: &pid, Quantity: 2}}
+
+	canceller := &stubCanceller{err: errors.New("stripe is down")}
+	svc := newTestServiceFull(t, repo, &stubCart{}, nil, nil, nil, canceller)
+	n, err := svc.ExpireStaleCheckouts(context.Background(), time.Now().Add(-30*time.Minute), 100)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	assert.Equal(t, StatusPendingPayment, repo.orders[id].Status, "if the intent can't be voided the stock must stay reserved")
+	assert.Equal(t, 0, repo.products[productID].Stock)
+}
+
 func TestExpireStaleCheckouts_SkipsFreshAndNonPending(t *testing.T) {
 	repo := newStubRepo()
 	guest := uuid.New()
@@ -777,11 +854,27 @@ func TestMarkPaid_Idempotent(t *testing.T) {
 	id := repo.seedOrder(orderRow{Status: StatusPendingPayment})
 	svc := newTestService(t, repo, &stubCart{})
 
-	require.NoError(t, svc.MarkPaid(context.Background(), id))
+	paid, err := svc.MarkPaid(context.Background(), id)
+	require.NoError(t, err)
+	assert.True(t, paid)
 	assert.Equal(t, StatusPaid, repo.orders[id].Status)
-	// Second call is a no-op that still succeeds (webhook replay).
-	require.NoError(t, svc.MarkPaid(context.Background(), id))
+	// Second call is a no-op that still reports paid (webhook replay).
+	paid, err = svc.MarkPaid(context.Background(), id)
+	require.NoError(t, err)
+	assert.True(t, paid)
 	assert.Equal(t, StatusPaid, repo.orders[id].Status)
+}
+
+func TestMarkPaid_CancelledOrderReportsNotPaid(t *testing.T) {
+	repo := newStubRepo()
+	// Reaped/cancelled before the (late) payment landed.
+	id := repo.seedOrder(orderRow{Status: StatusCancelled})
+	svc := newTestService(t, repo, &stubCart{})
+
+	paid, err := svc.MarkPaid(context.Background(), id)
+	require.NoError(t, err)
+	assert.False(t, paid, "a charge on a cancelled order must not be reported as paid")
+	assert.Equal(t, StatusCancelled, repo.orders[id].Status, "the cancelled status must not be overwritten")
 }
 
 func TestCancel_SecondCancelDoesNotDoubleRestock(t *testing.T) {

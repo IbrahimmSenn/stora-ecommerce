@@ -54,6 +54,10 @@ func publishWithRetry(do func() error, label string) {
 type IntentClient interface {
 	NewIntent(ctx context.Context, amountCents int64, currency string, metadata map[string]string) (id, clientSecret string, err error)
 	GetIntent(ctx context.Context, id string) (IntentStatus, error)
+	// CancelIntent voids the intent so it can no longer be confirmed. Returns
+	// ErrIntentNotCancellable (wrapped) when Stripe rejects the cancel because
+	// the intent is in a state that forbids it.
+	CancelIntent(ctx context.Context, id string) error
 }
 
 // IntentStatus is the trimmed view of a Stripe PaymentIntent used by Reconcile
@@ -116,6 +120,20 @@ func (stripeIntentClient) NewIntent(ctx context.Context, amount int64, currency 
 	return pi.ID, pi.ClientSecret, nil
 }
 
+func (stripeIntentClient) CancelIntent(ctx context.Context, id string) error {
+	params := &stripe.PaymentIntentCancelParams{}
+	params.Context = ctx
+	_, err := paymentintent.Cancel(id, params)
+	if err != nil {
+		var sErr *stripe.Error
+		if errors.As(err, &sErr) && sErr.Code == stripe.ErrorCodePaymentIntentUnexpectedState {
+			return fmt.Errorf("%w: %v", ErrIntentNotCancellable, err)
+		}
+		return fmt.Errorf("stripe paymentintent.Cancel: %w", err)
+	}
+	return nil
+}
+
 func (stripeIntentClient) GetIntent(ctx context.Context, id string) (IntentStatus, error) {
 	params := &stripe.PaymentIntentParams{}
 	params.Context = ctx
@@ -140,6 +158,12 @@ type Service interface {
 	// the same side effects as the corresponding webhook event. Safe to call
 	// when no webhook ever arrived; idempotent when one already did.
 	Reconcile(ctx context.Context, orderID uuid.UUID) error
+
+	// CancelOrderIntents voids every still-pending Stripe intent for an order
+	// so an abandoned checkout can't be charged after the reaper releases its
+	// stock. Returns orders.ErrPaymentInFlight (wrapped) when an intent has
+	// already succeeded or is mid-processing — the order isn't abandoned.
+	CancelOrderIntents(ctx context.Context, orderID uuid.UUID) error
 }
 
 type service struct {
@@ -339,8 +363,33 @@ func (s *service) onIntentFailed(ctx context.Context, raw json.RawMessage) error
 // no-op the second time. This closes the "charged order stuck in
 // pending_payment forever" hole where the two writes were transposed.
 func (s *service) applySucceeded(ctx context.Context, existing *Payment) error {
-	if err := s.orders.MarkPaid(ctx, existing.OrderID); err != nil {
+	paid, err := s.orders.MarkPaid(ctx, existing.OrderID)
+	if err != nil {
 		return err
+	}
+	if !paid {
+		// Charged, but the order is no longer pending — e.g. the checkout
+		// reaper cancelled it before a late payment landed. Record the payment
+		// truthfully, but don't confirm the purchase: no confirmation email,
+		// no revenue metric. Auto-refund; if that fails, the log line is the
+		// signal for a manual refund in the Stripe dashboard.
+		slog.Error("payment_succeeded_for_dead_order",
+			"order_id", existing.OrderID,
+			"payment_intent_id", existing.StripePaymentIntentID,
+			"amount_cents", existing.AmountCents)
+		if err := s.repo.UpdateSucceeded(ctx, existing.StripePaymentIntentID); err != nil {
+			return err
+		}
+		s.metrics.PaymentOrphaned()
+		if err := s.RefundOrder(ctx, existing.OrderID); err != nil {
+			slog.Error("auto-refund of orphaned payment failed — refund manually in the Stripe dashboard",
+				"order_id", existing.OrderID,
+				"payment_intent_id", existing.StripePaymentIntentID,
+				"err", err)
+		} else {
+			slog.Info("orphaned payment auto-refunded", "order_id", existing.OrderID)
+		}
+		return nil
 	}
 	if err := s.repo.UpdateSucceeded(ctx, existing.StripePaymentIntentID); err != nil {
 		return err
@@ -433,6 +482,40 @@ func (s *service) Reconcile(ctx context.Context, orderID uuid.UUID) error {
 		return nil
 	}
 	// processing, requires_action, requires_confirmation, etc. — leave pending.
+	return nil
+}
+
+// CancelOrderIntents voids the order's pending Stripe intents (see the
+// Service interface). Rows are flipped to cancelled only after Stripe
+// confirms the void, and only from pending, so a webhook that raced us can't
+// be overwritten.
+func (s *service) CancelOrderIntents(ctx context.Context, orderID uuid.UUID) error {
+	intentIDs, err := s.repo.PendingIntentIDsForOrder(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	for _, intentID := range intentIDs {
+		switch err := s.stripe.CancelIntent(ctx, intentID); {
+		case err == nil:
+		case errors.Is(err, ErrIntentNotCancellable):
+			// The intent moved past cancellable on Stripe's side. Succeeded or
+			// processing means the customer actually paid — the caller must not
+			// treat the order as abandoned. Anything else (canceled out-of-band)
+			// is dead and safe to record as cancelled.
+			st, gerr := s.stripe.GetIntent(ctx, intentID)
+			if gerr != nil {
+				return fmt.Errorf("intent %s not cancellable, status check failed: %w", intentID, gerr)
+			}
+			if st.Status == "succeeded" || st.Status == "processing" {
+				return fmt.Errorf("intent %s is %s: %w", intentID, st.Status, orders.ErrPaymentInFlight)
+			}
+		default:
+			return err
+		}
+		if err := s.repo.UpdateCancelled(ctx, intentID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

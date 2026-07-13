@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -197,6 +198,81 @@ func TestHandleEvent_IdempotentOnDuplicate(t *testing.T) {
 	assert.Empty(t, ordersSvc.statusCalls)
 	assert.Empty(t, events.succeeded)
 	assert.Empty(t, events.failed)
+}
+
+func TestHandleEvent_SucceededOnDeadOrderRefundsAndSkipsEmail(t *testing.T) {
+	// A late payment lands on an order the checkout reaper already cancelled:
+	// record the charge, refund it, and never send an order confirmation.
+	orderID := uuid.New()
+	ordersSvc := &stubOrders{
+		order:     makeOrderResp(orderID, orders.StatusCancelled, 2500, nil),
+		deadOrder: true,
+	}
+	repo := newStubRepo()
+	repo.seed(&Payment{
+		ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_dead",
+		Status: StatusPending, AmountCents: 2500, Currency: "usd",
+	})
+	events := &stubEvents{}
+	refunds := &stubRefunds{}
+	svc := newTestServiceWithRefunds(repo, ordersSvc, &stubIntent{}, events, refunds).(*service)
+
+	event := stripego.Event{
+		Type: "payment_intent.succeeded",
+		Data: &stripego.EventData{Raw: json.RawMessage(`{"id":"pi_dead"}`)},
+	}
+	require.NoError(t, svc.handleEvent(context.Background(), event))
+
+	assert.Empty(t, events.succeeded, "no confirmation email for a dead order")
+	require.Len(t, refunds.calls, 1, "the orphaned charge must be auto-refunded")
+	assert.Equal(t, "pi_dead", refunds.calls[0].intentID)
+	assert.Equal(t, StatusRefunded, repo.byIntent["pi_dead"].Status)
+}
+
+func TestCancelOrderIntents_VoidsPendingIntents(t *testing.T) {
+	orderID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_a", Status: StatusPending})
+	repo.seed(&Payment{ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_b", Status: StatusPending})
+	repo.seed(&Payment{ID: uuid.New(), OrderID: uuid.New(), StripePaymentIntentID: "pi_other", Status: StatusPending})
+	intents := &stubIntent{}
+	svc := newTestService(repo, &stubOrders{}, intents, &stubEvents{})
+
+	require.NoError(t, svc.CancelOrderIntents(context.Background(), orderID))
+
+	assert.ElementsMatch(t, []string{"pi_a", "pi_b"}, intents.cancelCalls)
+	assert.Equal(t, StatusCancelled, repo.byIntent["pi_a"].Status)
+	assert.Equal(t, StatusCancelled, repo.byIntent["pi_b"].Status)
+	assert.Equal(t, StatusPending, repo.byIntent["pi_other"].Status, "other orders' intents untouched")
+}
+
+func TestCancelOrderIntents_SucceededIntentReportsPaymentInFlight(t *testing.T) {
+	orderID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_won", Status: StatusPending})
+	intents := &stubIntent{
+		cancelErr: map[string]error{"pi_won": fmt.Errorf("stripe says no: %w", ErrIntentNotCancellable)},
+		getStatus: map[string]IntentStatus{"pi_won": {Status: "succeeded"}},
+	}
+	svc := newTestService(repo, &stubOrders{}, intents, &stubEvents{})
+
+	err := svc.CancelOrderIntents(context.Background(), orderID)
+	assert.ErrorIs(t, err, orders.ErrPaymentInFlight)
+	assert.Equal(t, StatusPending, repo.byIntent["pi_won"].Status, "a paid intent's row is left for the webhook/reconciler")
+}
+
+func TestCancelOrderIntents_AlreadyCanceledIntentIsSafe(t *testing.T) {
+	orderID := uuid.New()
+	repo := newStubRepo()
+	repo.seed(&Payment{ID: uuid.New(), OrderID: orderID, StripePaymentIntentID: "pi_gone", Status: StatusPending})
+	intents := &stubIntent{
+		cancelErr: map[string]error{"pi_gone": fmt.Errorf("already canceled: %w", ErrIntentNotCancellable)},
+		getStatus: map[string]IntentStatus{"pi_gone": {Status: "canceled"}},
+	}
+	svc := newTestService(repo, &stubOrders{}, intents, &stubEvents{})
+
+	require.NoError(t, svc.CancelOrderIntents(context.Background(), orderID))
+	assert.Equal(t, StatusCancelled, repo.byIntent["pi_gone"].Status)
 }
 
 func TestHandleWebhook_BadSignature(t *testing.T) {
@@ -451,6 +527,23 @@ func (s *stubRepo) LatestForOrder(_ context.Context, orderID uuid.UUID) (*Paymen
 	return nil, ErrPaymentNotFound
 }
 
+func (s *stubRepo) PendingIntentIDsForOrder(_ context.Context, orderID uuid.UUID) ([]string, error) {
+	var ids []string
+	for id, p := range s.byIntent {
+		if p.OrderID == orderID && p.Status == StatusPending {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func (s *stubRepo) UpdateCancelled(_ context.Context, intentID string) error {
+	if p, ok := s.byIntent[intentID]; ok && p.Status == StatusPending {
+		p.Status = StatusCancelled
+	}
+	return nil
+}
+
 func (s *stubRepo) MarkRefunded(_ context.Context, paymentID uuid.UUID, refundID string) error {
 	for _, p := range s.byIntent {
 		if p.ID == paymentID {
@@ -490,6 +583,9 @@ type stubOrders struct {
 	order       *orders.OrderResponse
 	getErr      error
 	statusCalls []string
+	// deadOrder makes MarkPaid report false: the order left pending_payment
+	// without being paid (reaped/cancelled), so the charge has no order.
+	deadOrder bool
 }
 
 func (s *stubOrders) Checkout(context.Context, *uuid.UUID, *uuid.UUID, orders.CheckoutRequest) (*orders.OrderResponse, error) {
@@ -513,9 +609,9 @@ func (s *stubOrders) GetLatestPrefill(context.Context, uuid.UUID) (*orders.Prefi
 func (s *stubOrders) LoadByID(_ context.Context, _ uuid.UUID) (*orders.OrderResponse, error) {
 	return s.order, nil
 }
-func (s *stubOrders) MarkPaid(_ context.Context, _ uuid.UUID) error {
+func (s *stubOrders) MarkPaid(_ context.Context, _ uuid.UUID) (bool, error) {
 	s.statusCalls = append(s.statusCalls, orders.StatusPaid)
-	return nil
+	return !s.deadOrder, nil
 }
 func (s *stubOrders) MarkPaymentFailed(_ context.Context, _ uuid.UUID) error {
 	s.statusCalls = append(s.statusCalls, orders.StatusPaymentFailed)
@@ -553,6 +649,18 @@ type stubIntent struct {
 	getStatus map[string]IntentStatus
 	getErr    error
 	getCalls  []string
+	// cancelErr programs per-id CancelIntent failures; ids not present cancel
+	// successfully.
+	cancelErr   map[string]error
+	cancelCalls []string
+}
+
+func (s *stubIntent) CancelIntent(_ context.Context, id string) error {
+	s.cancelCalls = append(s.cancelCalls, id)
+	if err, ok := s.cancelErr[id]; ok {
+		return err
+	}
+	return nil
 }
 
 func (s *stubIntent) NewIntent(_ context.Context, amount int64, currency string, metadata map[string]string) (string, string, error) {
