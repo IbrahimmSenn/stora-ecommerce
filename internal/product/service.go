@@ -10,7 +10,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/imageproc"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/imageproc"
 )
 
 type Service interface {

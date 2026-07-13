@@ -26,7 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/crypto"
 )
 
 const (

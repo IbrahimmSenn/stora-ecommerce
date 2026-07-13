@@ -19,10 +19,10 @@ import (
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/mailer"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/metrics"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/passwordpolicy"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/mailer"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/metrics"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/passwordpolicy"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/user"
 )
 
 type AuthService interface {

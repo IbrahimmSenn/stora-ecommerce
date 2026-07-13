@@ -3,7 +3,7 @@ package auth
 import (
 	"testing"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/crypto"
 )
 
 const testHexKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

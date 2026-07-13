@@ -15,8 +15,8 @@ import (
 	"github.com/stripe/stripe-go/v76/refund"
 	"github.com/stripe/stripe-go/v76/webhook"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/metrics"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/metrics"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/orders"
 )
 
 // publishRetryBackoffs is the per-attempt delay when the broker is briefly

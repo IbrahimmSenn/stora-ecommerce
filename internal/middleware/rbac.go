@@ -5,8 +5,8 @@ import (
 	"context"
 	"net/http"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 // Roles. Staff roles carry privileged access; customer is the default.

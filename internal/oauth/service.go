@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/user"
 )
 
 // TokenPair mirrors auth.LoginResponse for the OAuth flow.

@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/captcha"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/passwordpolicy"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/captcha"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/passwordpolicy"
 )
 
 type UserService interface {

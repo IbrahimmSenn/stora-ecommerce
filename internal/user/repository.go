@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/crypto"
 )
 
 const uniqueViolation = "23505" // PostgreSQL unique constraint violation code

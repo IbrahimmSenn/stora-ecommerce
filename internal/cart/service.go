@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/activity"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/product"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 )

@@ -17,8 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/seed"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/crypto"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/seed"
 )
 
 func main() {

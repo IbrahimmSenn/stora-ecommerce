@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/crypto"
 )
 
 type demoUser struct {

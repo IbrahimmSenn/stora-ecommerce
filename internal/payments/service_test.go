@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	stripego "github.com/stripe/stripe-go/v76"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/orders"
 )
 
 func newTestService(repo *stubRepo, ordersSvc *stubOrders, intents *stubIntent, events *stubEvents) Service {

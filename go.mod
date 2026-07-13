@@ -1,4 +1,4 @@
-module gitea.kood.tech/ibrahimsen/i-love-shopping
+module github.com/IbrahimmSenn/stora-ecommerce
 
 go 1.25.0
 

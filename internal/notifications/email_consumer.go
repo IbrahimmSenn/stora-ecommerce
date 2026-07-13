@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/messaging"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/payments"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/messaging"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/orders"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/payments"
 )
 
 // OrderLoader is the slice of orders.Service the consumer needs. Defined

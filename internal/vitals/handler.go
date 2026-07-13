@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 // Recorder is the metrics seam (implemented by metrics.WebVitals).

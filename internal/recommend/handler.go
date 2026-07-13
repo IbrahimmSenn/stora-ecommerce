@@ -6,10 +6,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
-	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/cart"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
+	mw "github.com/IbrahimmSenn/stora-ecommerce/internal/middleware"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 const (

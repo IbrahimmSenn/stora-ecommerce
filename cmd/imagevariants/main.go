@@ -22,7 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/imageproc"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/imageproc"
 )
 
 func main() {

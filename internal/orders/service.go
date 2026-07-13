@@ -12,10 +12,10 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/metrics"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/activity"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/cart"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/crypto"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/metrics"
 )
 
 // shippingRates is the built-in fallback used when no ShippingRater is wired

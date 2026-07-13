@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/product"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

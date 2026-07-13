@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 // limiterStore decides whether the client identified by key may proceed. It

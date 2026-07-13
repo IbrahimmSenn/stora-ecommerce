@@ -9,7 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cache"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/cache"
 )
 
 type Service interface {

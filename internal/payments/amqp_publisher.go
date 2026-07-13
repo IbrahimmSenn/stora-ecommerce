@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/messaging"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/messaging"
 )
 
 // brokerPublisher is the slice of messaging.Publisher this package needs.

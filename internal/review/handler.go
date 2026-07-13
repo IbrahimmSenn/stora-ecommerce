@@ -11,8 +11,8 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 type Handler struct {

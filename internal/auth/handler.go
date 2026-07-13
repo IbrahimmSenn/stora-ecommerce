@@ -10,9 +10,9 @@ import (
 
 	"github.com/go-playground/validator/v10"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/passwordpolicy"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/passwordpolicy"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 // refreshCookieName is scoped to /api/v1/auth so the long-lived refresh

@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/messaging"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/payments"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/messaging"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/orders"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/payments"
 )
 
 type stubLoader struct {

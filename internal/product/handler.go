@@ -15,11 +15,11 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/imageproc"
-	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/activity"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/imageproc"
+	mw "github.com/IbrahimmSenn/stora-ecommerce/internal/middleware"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 type Handler struct {

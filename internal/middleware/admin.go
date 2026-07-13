@@ -4,8 +4,8 @@ package middleware
 import (
 	"net/http"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 // IsAdmin rejects requests where the authenticated user's role is not "admin".

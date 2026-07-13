@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/activity"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/activity"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/product"
 )
 
 // Scoring weights. Kept as package-level constants so the algorithm is one

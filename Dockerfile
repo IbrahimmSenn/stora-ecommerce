@@ -20,9 +20,6 @@ WORKDIR /app
 
 COPY go.mod go.sum ./
 
-ENV GOPRIVATE=gitea.kood.tech/*
-ENV GONOSUMCHECK=gitea.kood.tech/*
-
 RUN go mod download
 
 COPY . .

@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 // Mailer is the slice of the mailer the contact service needs.

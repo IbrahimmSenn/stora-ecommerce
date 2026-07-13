@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
 	"github.com/stretchr/testify/assert"
 )
 

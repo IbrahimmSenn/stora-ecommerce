@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/cart"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/crypto"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/cart"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/crypto"
 )
 
 const testHexKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

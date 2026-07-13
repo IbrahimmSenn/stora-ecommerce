@@ -10,7 +10,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/tracing"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/tracing"
 )
 
 // Publisher publishes messages on a single confirm-mode channel.

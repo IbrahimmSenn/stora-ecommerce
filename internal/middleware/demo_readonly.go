@@ -4,7 +4,7 @@ package middleware
 import (
 	"net/http"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 // DemoReadOnly rejects mutating requests when the deployment runs as a public

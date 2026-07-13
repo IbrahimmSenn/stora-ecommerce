@@ -3,7 +3,7 @@ package recommend
 import (
 	"sort"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/product"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/product"
 )
 
 type scored struct {

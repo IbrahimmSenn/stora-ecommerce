@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/user"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/user"
 )
 
 // --- Mock user repository ---

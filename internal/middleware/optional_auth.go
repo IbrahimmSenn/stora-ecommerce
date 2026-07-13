@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
 )
 
 // OptionalAuth validates a Bearer token if present and injects claims into the

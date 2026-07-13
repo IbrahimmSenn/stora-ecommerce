@@ -9,10 +9,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/ctxkey"
-	mw "gitea.kood.tech/ibrahimsen/i-love-shopping/internal/middleware"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/orders"
-	"gitea.kood.tech/ibrahimsen/i-love-shopping/internal/response"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/ctxkey"
+	mw "github.com/IbrahimmSenn/stora-ecommerce/internal/middleware"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/orders"
+	"github.com/IbrahimmSenn/stora-ecommerce/internal/response"
 )
 
 type Handler struct {
