@@ -49,7 +49,23 @@ func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, bo
 }
 
 func (p *Publisher) publish(ctx context.Context, exchange, routingKey string, headers amqp.Table, body []byte) error {
-	confirm, err := p.ch.PublishWithDeferredConfirmWithContext(ctx, exchange, routingKey, false, false, amqp.Publishing{
+	return publishConfirmHeaders(ctx, p.ch, exchange, routingKey, headers, body)
+}
+
+func (p *Publisher) Close() error { return p.ch.Close() }
+
+// publishConfirm publishes with tracing headers and waits for the broker
+// confirm. Shared by Broker.Publish.
+func publishConfirm(ctx context.Context, ch *amqp.Channel, exchange, routingKey string, body []byte) error {
+	headers, endSpan := tracing.StartPublishSpan(ctx, exchange, routingKey)
+	err := publishConfirmHeaders(ctx, ch, exchange, routingKey, headers, body)
+	endSpan(err)
+	return err
+}
+
+// publishConfirmHeaders does the actual publish + confirm wait on a channel.
+func publishConfirmHeaders(ctx context.Context, ch *amqp.Channel, exchange, routingKey string, headers amqp.Table, body []byte) error {
+	confirm, err := ch.PublishWithDeferredConfirmWithContext(ctx, exchange, routingKey, false, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Timestamp:    time.Now(),
@@ -71,5 +87,3 @@ func (p *Publisher) publish(ctx context.Context, exchange, routingKey string, he
 	}
 	return nil
 }
-
-func (p *Publisher) Close() error { return p.ch.Close() }

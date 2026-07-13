@@ -179,28 +179,20 @@ func main() {
 
 	stripe.Key = cfg.StripeSecretKey
 
-	// --- RabbitMQ connection + topology ---
-	// Dial with bounded retry to absorb the brief window between rabbitmq's
-	// healthcheck going green and the broker being fully ready to serve.
+	// --- RabbitMQ broker (self-healing) ---
+	// The Broker owns the connection: it dials with bounded retry at boot and
+	// automatically re-dials, re-declares topology, and re-establishes the
+	// publisher channel + consumer on any later drop, so a broker restart no
+	// longer needs an app restart.
 	dialCtx, dialCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	amqpConn, err := messaging.Connect(dialCtx, cfg.RabbitMQURL)
+	broker, err := messaging.NewBroker(dialCtx, cfg.RabbitMQURL, messaging.DeclarePaymentsTopology)
 	dialCancel()
 	if err != nil {
 		log.Fatalf("connect to rabbitmq: %v", err)
 	}
-	defer amqpConn.Close()
+	defer broker.Close()
 
-	amqpPublisher, err := messaging.NewPublisher(amqpConn)
-	if err != nil {
-		log.Fatalf("open publisher channel: %v", err)
-	}
-	defer amqpPublisher.Close()
-
-	if err := messaging.DeclarePaymentsTopology(amqpPublisher.Channel()); err != nil {
-		log.Fatalf("declare topology: %v", err)
-	}
-
-	paymentsEventPublisher := payments.NewAmqpPublisher(amqpPublisher)
+	paymentsEventPublisher := payments.NewAmqpPublisher(broker)
 
 	userRepo := user.NewUserRepository(db, encryptor)
 	authRepo := auth.NewAuthRepository(db, encryptor)
@@ -305,20 +297,14 @@ func main() {
 	paymentsHandler := payments.NewHandler(paymentsService)
 
 	// --- Notifications consumer (subscribes to payment events) ---
+	// RunConsumer re-establishes itself across broker reconnects; it returns
+	// only when consumerCtx is cancelled at shutdown.
 	emailConsumer := &notifications.EmailConsumer{Orders: ordersService, Mail: mail}
-	amqpConsumer, err := messaging.NewConsumer(amqpConn, messaging.QueuePaymentEmails)
-	if err != nil {
-		log.Fatalf("open consumer channel: %v", err)
-	}
-	defer amqpConsumer.Close()
-
 	consumerCtx, stopConsumer := context.WithCancel(context.Background())
 	consumerDone := make(chan struct{})
 	go func() {
 		defer close(consumerDone)
-		if err := amqpConsumer.Run(consumerCtx, emailConsumer.Handle); err != nil && consumerCtx.Err() == nil {
-			log.Printf("consumer exited unexpectedly: %v", err)
-		}
+		broker.RunConsumer(consumerCtx, messaging.QueuePaymentEmails, emailConsumer.Handle)
 	}()
 
 	// --- Abandoned-checkout reaper ---
@@ -509,7 +495,7 @@ func main() {
 			checks["database"] = "ok"
 		}
 
-		if amqpConn.IsClosed() {
+		if !broker.IsConnected() {
 			checks["rabbitmq"] = "connection closed"
 			healthy = false
 		} else {
